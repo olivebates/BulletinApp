@@ -1,0 +1,6 @@
+<resources>
+    <style name="AppTheme" parent="BaseAppTheme">
+        <item name="android:windowSplashScreenBackground">#082E33</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_bulletin</item>
+    </style>
+</resources>

@@ -1,0 +1,26 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.bulletin.app'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.bulletin.app'
+        minSdk 26
+        targetSdk 36
+        versionCode 34
+        versionName '1.33'
+        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes { release { minifyEnabled false } }
+    testOptions { unitTests.returnDefaultValues = true }
+    lint { disable 'SetTextI18n', 'HardcodedText' }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
