@@ -48,7 +48,8 @@ public final class MainActivity extends Activity {
     private boolean questTimelines, fineTimelines;
     private boolean questRearrange, lawRearrange;
     private int questAnalyticsTab, lawAnalyticsTab;
-    private boolean moreOptionsExpanded, questUngroupedCollapsed, lawUngroupedCollapsed;
+    private int questPieRange = 4, lawPieRange = 4;
+    private boolean moreOptionsExpanded;
     private BoardArrangement dragArrangement;
     private final android.graphics.RectF originalDragSlot = new android.graphics.RectF();
     private View ungroupedDrop;
@@ -135,8 +136,9 @@ public final class MainActivity extends Activity {
             questTimelines = savedInstanceState.getBoolean("questTimelines"); fineTimelines = savedInstanceState.getBoolean("fineTimelines");
             questRearrange = savedInstanceState.getBoolean("questRearrange"); lawRearrange = savedInstanceState.getBoolean("lawRearrange");
             questAnalyticsTab = savedInstanceState.getInt("questAnalyticsTab"); lawAnalyticsTab = savedInstanceState.getInt("lawAnalyticsTab");
+            questPieRange = savedInstanceState.getInt("questPieRange", 4); lawPieRange = savedInstanceState.getInt("lawPieRange", 4);
             moreOptionsExpanded = savedInstanceState.getBoolean("moreOptionsExpanded");
-            questUngroupedCollapsed = savedInstanceState.getBoolean("questUngroupedCollapsed"); lawUngroupedCollapsed = savedInstanceState.getBoolean("lawUngroupedCollapsed");
+
         }
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         store.sync();
@@ -162,9 +164,12 @@ public final class MainActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out) {
         out.putBoolean("questRearrange", questRearrange); out.putBoolean("lawRearrange", lawRearrange);
         out.putInt("questAnalyticsTab", questAnalyticsTab); out.putInt("lawAnalyticsTab", lawAnalyticsTab);
-        out.putBoolean("moreOptionsExpanded", moreOptionsExpanded); out.putBoolean("questUngroupedCollapsed", questUngroupedCollapsed); out.putBoolean("lawUngroupedCollapsed", lawUngroupedCollapsed);
+        out.putInt("questPieRange", questPieRange); out.putInt("lawPieRange", lawPieRange);
+        out.putBoolean("moreOptionsExpanded", moreOptionsExpanded);
         out.putInt("tab", tab); out.putBoolean("questTimelines", questTimelines); out.putBoolean("fineTimelines", fineTimelines); super.onSaveInstanceState(out);
     }
+    @Override protected void onStart() { super.onStart(); store.appOpened(); }
+    @Override protected void onStop() { store.appClosed(); super.onStop(); }
     @Override protected void onResume() {
         super.onResume(); resumed = true;
         store.lawWarningListener = () -> {
@@ -382,11 +387,13 @@ public final class MainActivity extends Activity {
     private void addGroupedAnalytics(LinearLayout rows, List<String> ids, java.util.function.BiConsumer<LinearLayout, String> add) {
         for (java.util.Map.Entry<String, List<String>> entry : game.analyticsGroups(ids, tab == 1).entrySet()) {
             Game.Category category = game.category(entry.getKey());
-            boolean collapsed = category != null ? category.collapsed : tab == 1 ? lawUngroupedCollapsed : questUngroupedCollapsed;
+            String sectionKey = tab + ":" + analyticsTab() + ":" + entry.getKey();
+            boolean collapsed = game.collapsedAnalyticsSections.contains(sectionKey);
             Ui palette = category != null ? new Ui(this, category.hue >= 0 ? category.hue : game.hue) : ui;
             LinearLayout group = collapsibleSection(rows, category != null ? game.categoryTitle(category) : "Uncategorized", palette, collapsed, next -> {
-                if (category != null) { category.collapsed = next; store.save(); renderedRevision = store.revision; }
-                else if (tab == 1) lawUngroupedCollapsed = next; else questUngroupedCollapsed = next;
+                game.collapsedAnalyticsSections.remove(sectionKey);
+                if (next) game.collapsedAnalyticsSections.add(sectionKey);
+                store.save(); renderedRevision = store.revision;
             });
             if (category != null && game.categoryActive(category)) {
                 TextView heading = (TextView) ((LinearLayout) group.getParent()).getChildAt(0);
@@ -812,18 +819,38 @@ public final class MainActivity extends Activity {
         body.addView(center, new FrameLayout.LayoutParams(-1, -1)); updateTimer();
     }
     private void addCancelQuest(LinearLayout center) {
-        Button cancel = button("Cancel quest", Ui.RED); cancel.setTextSize(12); cancel.setMinHeight(0); cancel.setMinimumHeight(0);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ui.dp(120), ui.dp(32)); p.gravity = Gravity.CENTER_HORIZONTAL; p.topMargin = ui.dp(8);
-        center.addView(cancel, p);
+        LinearLayout actions = row(); actions.setGravity(Gravity.CENTER);
+        Button cancel = button("Cancel Quest", Ui.RED), pause = button("Pause", ui.border);
+        for (Button control : new Button[]{cancel, pause}) {
+            control.setTextSize(12); control.setMinHeight(0); control.setMinimumHeight(0);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ui.dp(120), ui.dp(32));
+            p.setMargins(ui.dp(4), 0, ui.dp(4), 0); actions.addView(control, p);
+        }
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, ui.dp(32)); p.topMargin = ui.dp(8); center.addView(actions, p);
         cancel.setOnClickListener(v -> {
             store.sync();
-            if (game.cancelQuest(System.currentTimeMillis())) {
-                stopService(new Intent(this, TimerService.class)); store.save();
-                store.notices.add(new GameStore.Notice("Quest paused. Your progress is saved.", 0));
-                cancel.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+            if (game.session != null && game.session.phase == Game.QUEST) {
+                for (Game.Quest q : game.quests) if (q.id.equals(game.session.questId)) { cancelQuestTimer(q); break; }
             }
             render();
         });
+        pause.setOnClickListener(v -> {
+            store.sync();
+            if (game.pauseQuest(System.currentTimeMillis())) {
+                saveTimerAction(); store.notices.add(new GameStore.Notice("Quest paused. Your progress is saved.", 0));
+                pause.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
+            }
+            render();
+        });
+    }
+    private void saveTimerAction() {
+        store.save();
+        if (game.hasRunningTimers()) ensureTimer(); else stopService(new Intent(this, TimerService.class));
+    }
+    private void cancelQuestTimer(Game.Quest q) {
+        if (game.cancelQuest(q, System.currentTimeMillis())) {
+            saveTimerAction(); store.notices.add(new GameStore.Notice("Quest canceled.", 0));
+        }
     }
     private void updateTimer() {
         for (Game.Fine law : game.fines) { TextView value = lawTimers.get(law.id); if (value != null) changedText(value, law.mode == Game.TIMED ? TimerService.format(law.remaining(System.currentTimeMillis())) : law.amountUsed + "/" + law.amountLimit); }
@@ -872,18 +899,18 @@ public final class MainActivity extends Activity {
     }
     private void startLawImpacts() {
         long now = android.os.SystemClock.uptimeMillis();
-        store.lawWarningStarts.entrySet().removeIf(entry -> now - entry.getValue() >= Synth.WARNING_MILLIS);
+        store.lawWarningStarts.entrySet().removeIf(entry -> now - entry.getValue() >= store.sounds.warningDurationMillis);
         if (!Feedback.motion(this)) return;
         for (java.util.Map.Entry<String, Long> entry : store.lawWarningStarts.entrySet()) {
             String id = entry.getKey(); TextView value = lawTimers.get(id); long start = entry.getValue();
             if (value == null || value.getVisibility() != View.VISIBLE || value.getWidth() == 0 || lawImpacts.containsKey(id)) continue;
-            long left = Synth.WARNING_MILLIS - (now - start); if (left <= 0) continue;
+            long left = store.sounds.warningDurationMillis - (now - start); if (left <= 0) continue;
             value.setPivotX(value.getWidth() / 2f); value.setPivotY(value.getHeight() / 2f);
             android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0, 1);
             animator.setDuration(left); animator.setInterpolator(new android.view.animation.LinearInterpolator());
             Runnable update = () -> {
                 long elapsed = android.os.SystemClock.uptimeMillis() - start;
-                float force = Synth.warningEnvelope(elapsed);
+                float force = Synth.warningEnvelope((double) elapsed * Synth.WARNING_MILLIS / store.sounds.warningDurationMillis);
                 float scale = 1 + .28f * force;
                 value.setScaleX(scale); value.setScaleY(scale);
                 value.setTranslationX((float) Math.sin(elapsed * .14) * ui.dp(5) * force);
@@ -913,7 +940,20 @@ public final class MainActivity extends Activity {
         root.addView(bar, new LinearLayout.LayoutParams(-1, -2));
     }
     private void buildStatistics(LinearLayout rows) {
-        Statistics data = new Statistics(game, tab == 1, System.currentTimeMillis(), ZoneId.systemDefault());
+        int selectedRange = tab == 1 ? lawPieRange : questPieRange;
+        if (analyticsTab() == 1) {
+            LinearLayout ranges = row(); String[] names = {"Today", "Week", "Month", "3 Months", "Year"};
+            for (int i = 0; i < names.length; i++) {
+                final int index = i; Button range = button(names[i], selectedRange == i ? Ui.GOLD : ui.border);
+                range.setTextSize(11); range.setMinHeight(0); range.setMinimumHeight(0); range.setPadding(0, 0, 0, 0);
+                range.setSelected(selectedRange == i); range.setContentDescription("Chart range: " + names[i]);
+                ranges.addView(range, new LinearLayout.LayoutParams(0, ui.dp(36), 1));
+                range.setOnClickListener(v -> { if (tab == 1) lawPieRange = index; else questPieRange = index; boardScrollY = 0; render(); });
+            }
+            rows.addView(ranges, new LinearLayout.LayoutParams(-1, -2));
+        }
+        Statistics data = new Statistics(game, tab == 1, System.currentTimeMillis(), ZoneId.systemDefault(),
+            analyticsTab() == 1 ? Statistics.rangeStart(game.day, selectedRange) : Long.MIN_VALUE);
         if (tab == 0) rows.addView(help("Quest time recorded since " + java.time.Instant.ofEpochMilli(game.analyticsSince).atZone(ZoneId.systemDefault()).toLocalDate().format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))));
         if (analyticsTab() == 1) {
             rows.addView(new ActivityChart(this, data, ui), new LinearLayout.LayoutParams(-1, ui.dp(240)));
@@ -934,7 +974,7 @@ public final class MainActivity extends Activity {
                 group.setContentDescription(series.name + ": " + Statistics.amount(series.value, data.laws)); rows.addView(group);
             }
         } else {
-            rows.addView(help("Each collumn is a week, each square is a day. Days light up when you do the thing on those days, and the intensity of the squares color shows how much."));
+            rows.addView(help("Each column is a week, each square is a day. Days light up when you do the thing on those days, and the intensity of the squares color shows how much."));
             if (data.heatSeries.isEmpty()) rows.addView(help(data.laws ? "No laws yet." : "No active multi-use quests today."));
             java.util.Map<String, Statistics.Series> series = new java.util.LinkedHashMap<>();
             for (Statistics.Series item : data.heatSeries) series.put(item.id, item);
@@ -1089,14 +1129,88 @@ public final class MainActivity extends Activity {
             @Override public void onStartTrackingTouch(SeekBar s) { }
             @Override public void onStopTrackingTouch(SeekBar s) { hideKeyboard(); render(); }
         });
-        Button reset = button("Reset values to default", ui.border); content.addView(reset, fieldParams());
+        Button reset = button("\u21ba", ui.border); reset.setTextSize(22);
+        reset.setMinHeight(0); reset.setMinimumHeight(0); reset.setPadding(0, 0, 0, 0);
+        reset.setContentDescription("Reset app color"); reset.setTooltipText("Reset app color");
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(ui.dp(36), ui.dp(40)); resetParams.rightMargin = ui.dp(8);
+        huePanel.addView(reset, 1, resetParams);
         reset.setOnClickListener(v -> {
-            store.sync(); game.hue = 186;
-            store.save(); hideKeyboard(); render();
+            game.hue = 186; store.save(); hideKeyboard(); render();
         });
+        addBackupControls(content);
         LinearLayout.LayoutParams graph = new LinearLayout.LayoutParams(-1, ui.dp(200), 1); graph.topMargin = ui.dp(8);
         balanceGraph = new BalanceGraph(this, game, ui); content.addView(balanceGraph, graph);
+        long availableStart = game.balances.isEmpty() ? System.currentTimeMillis() : game.balances.get(0).at;
+        long latest = game.balances.isEmpty() ? availableStart : game.balances.get(game.balances.size()-1).at;
+        long availableEnd = Math.max(availableStart+1, Math.max(latest, System.currentTimeMillis()));
+        BalanceRangeSlider range = new BalanceRangeSlider(this, ui, availableStart, availableEnd, game.balanceRangeStart, game.balanceRangeEnd, (start, end, finished) -> {
+            balanceGraph.setRange(start, end);
+            if (finished) { game.balanceRangeStart = start; game.balanceRangeEnd = end; store.save(); renderedRevision = store.revision; }
+        });
+        content.addView(range, new LinearLayout.LayoutParams(-1, ui.dp(60)));
+
         scroll.addView(content); body.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+    }
+    private void addBackupControls(LinearLayout content) {
+        LinearLayout controls = row();
+        java.util.List<BackupArchive.Entry> entries = store.backups();
+        List<String> labels = new ArrayList<>(); labels.add("Backups");
+        DateTimeFormatter date = DateTimeFormatter.ofPattern("d MMM yyyy HH:mm:ss").withZone(ZoneId.systemDefault());
+        for (BackupArchive.Entry e : entries) labels.add(date.format(java.time.Instant.ofEpochMilli(e.at)) + " · " + e.reason);
+        android.widget.Spinner backups = new android.widget.Spinner(this); backups.setContentDescription("Saved backups"); backups.setBackground(ui.button(ui.border));
+        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, labels) {
+            @Override public View getView(int position, View convert, ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convert, parent); view.setTextColor(ui.text); view.setTextSize(12); return view;
+            }
+            @Override public View getDropDownView(int position, View convert, ViewGroup parent) {
+                TextView view = (TextView) super.getDropDownView(position, convert, parent); view.setTextColor(ui.text); view.setBackgroundColor(ui.background); view.setTextSize(12); view.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12)); return view;
+            }
+        };
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item); backups.setAdapter(adapter);
+        backups.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (position > 0) { BackupArchive.Entry entry = entries.get(position-1); backups.setSelection(0); confirmBackup(entry); }
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
+        controls.addView(backups, new LinearLayout.LayoutParams(0, ui.dp(44), 1));
+        for (String action : new String[]{"Export", "Import"}) {
+            Button button = button(action, ui.border); button.setTextSize(11); button.setMinHeight(0); button.setMinimumHeight(0); button.setPadding(0,0,0,0);
+            button.setContentDescription(action + " save"); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ui.dp(64), ui.dp(44)); p.leftMargin=ui.dp(4); controls.addView(button,p);
+            button.setOnClickListener(v -> { if(action.equals("Export")) exportSave(); else importSave(); });
+        }
+        content.addView(controls, fieldParams());
+    }
+    private void confirmBackup(BackupArchive.Entry entry) {
+        LinearLayout content=column(); content.addView(help("Warning!\n\nThis will delete your current data and restore the backup!\nAre you sure?"));
+        LinearLayout actions=row(); Button cancel=button("Cancel",ui.border), restore=button("Restore",Ui.RED); addAction(actions,cancel);addAction(actions,restore);content.addView(actions);
+        Dialog window=showDialog(content);cancel.setOnClickListener(v->window.dismiss());
+        restore.setOnClickListener(v->{ if(restoreSave(entry.state,"Before backup restore")) window.dismiss(); });
+    }
+    private boolean restoreSave(String text, String reason) {
+        try {
+            store.restoreSave(text,reason); hideKeyboard(); game=store.game;
+            stopAnimation(); countersInitialized=false; questRearrange=lawRearrange=questTimelines=fineTimelines=false;
+            boardScrollY=0; deathReviewShown=null;deathPlaying=false;renderedRevision=-1;
+            store.sync(); if(game.hasRunningTimers())ensureTimer();else stopService(new Intent(this,TimerService.class));render();
+            Toast.makeText(this,"Save restored",Toast.LENGTH_SHORT).show();return true;
+        } catch(Exception ex) { Toast.makeText(this,"Could not load save: "+ex.getMessage(),Toast.LENGTH_LONG).show();return false; }
+    }
+    private void exportSave() {
+        try {
+            String saved=store.exportSave();LinearLayout content=column();content.addView(label("Export save"));
+            EditText text=input("Save string",false);text.setSingleLine(false);text.setTextSize(11);text.setTypeface(Typeface.MONOSPACE);text.setText(saved);text.setKeyListener(null);text.setTextIsSelectable(true);
+            content.addView(text,new LinearLayout.LayoutParams(-1,ui.dp(160)));
+            LinearLayout actions=row();Button close=button("Close",ui.border),copy=button("Copy",Ui.GREEN);addAction(actions,close);addAction(actions,copy);content.addView(actions);
+            Dialog window=showDialog(content);close.setOnClickListener(v->window.dismiss());
+            copy.setOnClickListener(v->{android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Bulletin save",saved));Toast.makeText(this,"Save copied",Toast.LENGTH_SHORT).show();});
+        } catch(Exception ex) { Toast.makeText(this,"Could not export save: "+ex.getMessage(),Toast.LENGTH_LONG).show(); }
+    }
+    private void importSave() {
+        LinearLayout content=column();content.addView(label("Import save"));EditText text=input("Paste save string",false);
+        text.setSingleLine(false);text.setTextSize(11);text.setTypeface(Typeface.MONOSPACE);text.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        content.addView(text,new LinearLayout.LayoutParams(-1,ui.dp(160)));LinearLayout actions=row();Button cancel=button("Cancel",ui.border),load=button("Import",Ui.GREEN);addAction(actions,cancel);addAction(actions,load);content.addView(actions);
+        Dialog window=showDialog(content);cancel.setOnClickListener(v->window.dismiss());load.setOnClickListener(v->{if(restoreSave(text.getText().toString(),"Before import"))window.dismiss();});
     }
     private void createQuest() { createQuestIn(""); }
     private void createQuestIn(String categoryId) { creatingCategoryId = categoryId; editQuest(null); }
@@ -1765,17 +1879,25 @@ public final class MainActivity extends Activity {
     private void manageEntry(Game.Quest quest, Game.Fine fine) {
         store.sync();
         manageOptions(quest != null ? quest.name : fine.name,
-            () -> { if (quest != null) editQuest(quest); else editFine(fine); }, () -> deleteEntry(quest, fine));
+            () -> { if (quest != null) editQuest(quest); else editFine(fine); }, () -> deleteEntry(quest, fine),
+            quest != null && game.isPaused(quest) ? () -> { store.sync(); cancelQuestTimer(quest); render(); } : null);
     }
     private void manageCategory(Game.Category category) {
         withUi(new Ui(this, category.hue >= 0 ? category.hue : game.hue), () ->
             manageOptions(category.name, () -> editCategory(category), () -> deleteCategory(category)));
     }
     private void manageOptions(String title, Runnable editAction, Runnable deleteAction) {
+        manageOptions(title, editAction, deleteAction, null);
+    }
+    private void manageOptions(String title, Runnable editAction, Runnable deleteAction, Runnable cancelQuestAction) {
         LinearLayout content = column(); content.addView(label(title));
         Button nevermind = button("Nevermind", ui.border), edit = button("Edit", Ui.GREEN), delete = button("Delete", Ui.RED);
         content.addView(nevermind, fieldParams()); content.addView(edit, fieldParams()); content.addView(delete, fieldParams());
         Dialog window = showDialog(content);
+        if (cancelQuestAction != null) {
+            Button cancel = button("Cancel Quest", Ui.RED); content.addView(cancel, 2, fieldParams());
+            cancel.setOnClickListener(v -> { window.dismiss(); cancelQuestAction.run(); });
+        }
         nevermind.setOnClickListener(v -> window.dismiss());
         edit.setOnClickListener(v -> { window.dismiss(); editAction.run(); });
         delete.setOnClickListener(v -> { window.dismiss(); deleteAction.run(); });

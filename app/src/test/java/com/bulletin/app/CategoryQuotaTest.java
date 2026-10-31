@@ -71,7 +71,7 @@ public class CategoryQuotaTest {
         assertTrue(g.restoreOneOff(q.id, now + 31000)); assertTrue(g.canStart(q)); assertEquals(0, g.coins);
     }
     @Test public void timedSingleCanBePausedAndResumedAcrossRestart() throws Exception {
-        Game g = new Game(now, zone); g.energy = Game.DEAD; Game.Quest q = quest(g, null, false); q.timed = true; g.start(q, now); g.cancelQuest(now + 5000);
+        Game g = new Game(now, zone); g.energy = Game.DEAD; Game.Quest q = quest(g, null, false); q.timed = true; g.start(q, now); g.pauseQuest(now + 5000);
         Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 10000, zone); Game.Quest resumed = loaded.quests.get(0);
         assertTrue(resumed.timed); assertEquals(15000, loaded.remainingFor(resumed, now + 10000)); assertTrue(loaded.start(resumed, now + 10000));
         loaded.advance(now + 25000, zone); assertTrue(resumed.done(loaded.day)); assertEquals(30, loaded.coins);

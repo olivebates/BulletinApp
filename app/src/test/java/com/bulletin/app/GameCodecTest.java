@@ -75,7 +75,7 @@ public class GameCodecTest {
         assertEquals(Long.MAX_VALUE, loaded.session.endsAt); assertEquals(g.session.accountedAt, loaded.session.accountedAt);
     }
     @Test public void eventsAndBalanceSamplesSurviveRelaunchWithoutDuplication() throws Exception {
-        Game g = sample(); g.cancelQuest(NOW + 1000); g.questMinutes = 0; g.restMinutes = 0;
+        Game g = sample(); g.pauseQuest(NOW + 1000); g.questMinutes = 0; g.restMinutes = 0;
         Game.Quest manual = new Game.Quest(); manual.firstDay = g.day; manual.name = "Instant"; g.quests.add(manual);
         g.completeInstant(manual, NOW + 3000); g.incurFine(g.fines.get(0), NOW + 4000);
         Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), NOW + 5000, ZONE);
@@ -84,7 +84,7 @@ public class GameCodecTest {
         assertEquals(g.balances.get(g.balances.size() - 1).cents, loaded.balances.get(loaded.balances.size() - 1).cents);
     }
     @Test public void rewardReferenceIsPersistedAcrossSettingsChangesAndRelaunch() throws Exception {
-        Game g = sample(); g.cancelQuest(NOW); g.questMinutes = 15; g.quests.get(0).questMinutes = 5; g.start(g.quests.get(0), NOW);
+        Game g = sample(); g.pauseQuest(NOW); g.questMinutes = 15; g.quests.get(0).questMinutes = 5; g.start(g.quests.get(0), NOW);
         g.questMinutes = 30; long quoted = g.activeBounty();
         Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), NOW, ZONE);
         assertEquals(quoted, loaded.activeBounty()); assertEquals(25, loaded.session.referenceMinutes); assertEquals(25, loaded.session.rewardMinutes);
@@ -98,7 +98,7 @@ public class GameCodecTest {
         assertEquals(1, loaded.questMinutes); assertEquals(g.firstOpenedDay, loaded.firstOpenedDay);
     }
     @Test public void pausedTimeAndRewardReferenceSurviveRelaunch() throws Exception {
-        Game g = sample(); g.cancelQuest(NOW + 12345);
+        Game g = sample(); g.pauseQuest(NOW + 12345);
         Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), NOW + 20000, ZONE);
         Game.Quest q = loaded.quests.get(0); assertEquals(1500000 - 12345, q.remainingMillis);
         assertEquals(25, q.pausedReferenceMinutes); assertEquals(25, q.pausedRewardMinutes);

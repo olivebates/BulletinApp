@@ -56,13 +56,13 @@ public class GameTest {
     }
     @Test public void cancelledTimedQuestKeepsTimeButGivesNoRewardOrCompletion() {
         Game g = game(); Game.Quest q = quest(g, true, true, true); g.start(q, NOW);
-        assertTrue(g.cancelQuest(NOW + 30000)); assertNull(g.session); assertEquals(30000, g.timedMillisToday);
+        assertTrue(g.pauseQuest(NOW + 30000)); assertNull(g.session); assertEquals(30000, g.timedMillisToday);
         assertEquals(0, g.coins); assertEquals(100, g.nextBounty); assertFalse(q.done(g.day)); assertTrue(g.history.isEmpty());
         g.advance(NOW + 3600000, UTC); assertEquals(0, g.coins); assertTrue(g.canStart(q));
     }
     @Test public void cancelDoesNotCancelRest() {
         Game g = game(); g.start(quest(g, true, false, true), NOW); g.advance(NOW + 1500000, UTC);
-        assertFalse(g.cancelQuest(NOW + 1500001)); assertEquals(Game.REST, g.session.phase);
+        assertFalse(g.pauseQuest(NOW + 1500001)); assertEquals(Game.REST, g.session.phase);
     }
     @Test public void questThenRestUsesCapturedTimes() {
         Game g = game(); g.restMinutes = 4; Game.Quest q = quest(g, true, false, true); g.start(q, NOW);
@@ -216,23 +216,23 @@ public class GameTest {
     }
     @Test public void repeatedCancelAndResumeRetainsRemainingTimeAndDoesNotDoubleCountWork() {
         Game g = game(); Game.Quest q = quest(g, true, false, true); g.start(q, NOW);
-        g.cancelQuest(NOW + 20000); assertEquals(1480000, q.remainingMillis); assertEquals(1480000, g.remainingFor(q, NOW + 999999));
+        g.pauseQuest(NOW + 20000); assertEquals(1480000, q.remainingMillis); assertEquals(1480000, g.remainingFor(q, NOW + 999999));
         g.start(q, NOW + 100000); assertEquals(NOW + 1580000, g.session.endsAt);
-        g.cancelQuest(NOW + 110000); assertEquals(1470000, q.remainingMillis); assertEquals(30000, g.timedMillisToday);
+        g.pauseQuest(NOW + 110000); assertEquals(1470000, q.remainingMillis); assertEquals(30000, g.timedMillisToday);
         g.start(q, NOW + 200000); g.advance(NOW + 1670000, UTC);
         assertEquals(1500000, g.timedMillisToday); assertEquals(100, g.coins); assertEquals(1, g.history.size());
         assertEquals(-1, q.remainingMillis); assertEquals(1500000, g.remainingFor(q, NOW + 1700000));
     }
     @Test public void pausedQuestKeepsRewardDurationWhenSettingsChange() {
         Game g = game(); g.questMinutes = 15; Game.Quest q = quest(g, true, false, true); q.questMinutes = 5;
-        g.start(q, NOW); g.cancelQuest(NOW + 60000); assertEquals(1440000, q.remainingMillis);
+        g.start(q, NOW); g.pauseQuest(NOW + 60000); assertEquals(1440000, q.remainingMillis);
         g.energy = Game.EXTREME; q.questMinutes = 10; assertEquals(100, g.bountyFor(q));
         g.start(q, NOW + 100000); assertEquals(100, g.activeBounty()); assertEquals(NOW + 1540000, g.session.endsAt);
         g.advance(NOW + 1540000, UTC); assertEquals(100, g.coins); assertEquals(1500000, g.timedMillisToday);
     }
     @Test public void resumedQuestOnlyRestsAfterItsRemainingTimeFinishes() {
         Game g = game(); g.restMinutes = 1; Game.Quest q = quest(g, true, false, true);
-        g.start(q, NOW); g.cancelQuest(NOW + 50000); assertNull(g.session);
+        g.start(q, NOW); g.pauseQuest(NOW + 50000); assertNull(g.session);
         g.start(q, NOW + 100000); g.advance(NOW + 1549999, UTC); assertEquals(0, g.coins);
         g.advance(NOW + 1550000, UTC); assertEquals(Game.REST, g.session.phase); assertEquals(100, g.coins);
     }

@@ -25,19 +25,33 @@ final class Statistics {
     long total, maximum;
     final long firstDay, lastDay;
     final boolean laws;
+    static long rangeStart(long day, int range) {
+        LocalDate today = LocalDate.ofEpochDay(day);
+        switch (range) {
+            case 0: return day;
+            case 1: return day - 6;
+            case 2: return today.minusMonths(1).plusDays(1).toEpochDay();
+            case 3: return today.minusMonths(3).plusDays(1).toEpochDay();
+            default: return today.minusYears(1).plusDays(1).toEpochDay();
+        }
+    }
     Statistics(Game game, boolean laws, long now, ZoneId zone) {
+        this(game, laws, now, zone, Long.MIN_VALUE);
+    }
+    Statistics(Game game, boolean laws, long now, ZoneId zone, long sinceDay) {
         this.laws = laws; lastDay = game.day; firstDay = LocalDate.ofEpochDay(lastDay).minusYears(1).plusDays(1).toEpochDay();
         Map<String, Series> items = new LinkedHashMap<>(); Set<String> completed = new HashSet<>();
         if (laws) for (Game.Fine f : game.fines) items.put(f.id, new Series(f.id, f.name, 0));
         else for (Game.Quest q : game.quests) items.put(q.id, new Series(q.id, q.name, Math.round(game.questHue(q))));
         for (Game.HistoryEntry e : game.history) if (e.kind.equals(laws ? Game.FINE_HISTORY : Game.QUEST_HISTORY)) {
             completed.add(e.id); Series s = items.computeIfAbsent(e.id, id -> new Series(id, e.name, laws ? 0 : Math.round(game.hue)));
-            if (laws) s.add(Game.localDay(e.at, zone), e.count);
+            long day = Game.localDay(e.at, zone);
+            if (laws && day >= sinceDay && day <= lastDay) s.add(day, e.count);
         }
         if (!laws) {
-            for (Game.FocusEntry e : game.focus) items.computeIfAbsent(e.id, id -> new Series(id, e.name, Math.round(game.hue))).add(e.day, e.millis);
+            for (Game.FocusEntry e : game.focus) if (e.day >= sinceDay && e.day <= lastDay) items.computeIfAbsent(e.id, id -> new Series(id, e.name, Math.round(game.hue))).add(e.day, e.millis);
             Game.Session active = game.session;
-            if (active != null && active.timed && active.phase == Game.QUEST) {
+            if (active != null && active.timed && active.phase == Game.QUEST && game.day >= sinceDay) {
                 long elapsed = Math.max(0, Math.min(now, active.endsAt) - active.accountedAt);
                 if (elapsed > 0) items.computeIfAbsent(active.questId, id -> new Series(id, active.questName, Math.round(game.hue))).add(game.day, elapsed);
             }

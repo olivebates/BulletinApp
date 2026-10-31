@@ -11,7 +11,7 @@ import java.util.List;
 
 /** One owner for durable state. Activity, service and receiver all call on the main thread. */
 public final class GameStore {
-    public final Game game;
+    public Game game;
     public final Synth sounds;
     public long revision;
     public String warning;
@@ -19,6 +19,22 @@ public final class GameStore {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private String lastValidSave = "";
     private boolean readOnly;
+    private long saveGeneration;
+    private final Handler compressionHandler = new Handler(Looper.getMainLooper());
+    private java.util.concurrent.Future<?> compressionTask;
+    private final java.util.concurrent.ExecutorService compressionWorker = java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(() -> { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND); runnable.run(); }, "Bulletin-save-compression");
+        thread.setDaemon(true); return thread;
+    });
+    private BackupArchive archive = new BackupArchive();
+    private final Handler backupHandler = new Handler(Looper.getMainLooper());
+    private boolean appOpen;
+    private final Runnable periodicBackup = new Runnable() {
+        @Override public void run() {
+            if (!appOpen) return;
+            sync(); backupNow("Two-hour backup"); backupHandler.postDelayed(this, 2 * 60 * 60 * 1000L);
+        }
+    };
     public static final class Notice {
         public final String message;
         public final long earned;
@@ -44,18 +60,18 @@ public final class GameStore {
             lastValidSave = preferences.getString("state", "");
             if (lastValidSave.isEmpty() && preferences.contains("state")) throw new JSONException("Empty save");
             loaded = GameCodec.decode(lastValidSave, System.currentTimeMillis(), ZoneId.systemDefault());
-            if (!lastValidSave.isEmpty() && new JSONObject(lastValidSave).optInt("version", 1) < 4 && !preferences.contains("before_v4")) {
+            if (!lastValidSave.isEmpty() && new JSONObject(SaveCompression.unpack(lastValidSave)).optInt("version", 1) < 4 && !preferences.contains("before_v4")) {
                 preferences.edit().putString("before_v4", lastValidSave).commit();
             }
-            if (!lastValidSave.isEmpty() && new JSONObject(lastValidSave).optInt("version", 1) < 3) {
+            if (!lastValidSave.isEmpty() && new JSONObject(SaveCompression.unpack(lastValidSave)).optInt("version", 1) < 3) {
                 if (!preferences.contains("before_v3")) preferences.edit().putString("before_v3", lastValidSave).commit();
                 for (String key : new String[]{"before_v2", "backup"}) {
                     String old = preferences.getString(key, "");
-                    if (!old.isEmpty()) try { loaded.firstOpenedDay = Math.min(loaded.firstOpenedDay, new JSONObject(old).getLong("day")); }
-                    catch (JSONException ignored) { }
+                    if (!old.isEmpty()) try { loaded.firstOpenedDay = Math.min(loaded.firstOpenedDay, new JSONObject(SaveCompression.unpack(old)).getLong("day")); }
+                    catch (Exception ignored) { }
                 }
             }
-            if (!lastValidSave.isEmpty() && new JSONObject(lastValidSave).optInt("version", 1) == 1
+            if (!lastValidSave.isEmpty() && new JSONObject(SaveCompression.unpack(lastValidSave)).optInt("version", 1) == 1
                     && !preferences.contains("before_v2")) {
                 preferences.edit().putString("before_v2", lastValidSave).commit();
             }
@@ -78,6 +94,11 @@ public final class GameStore {
         }
         game = loaded;
         sounds = new Synth(context);
+        try { archive = BackupArchive.decode(preferences.getString("backup_archive", "[]")); }
+        catch (Exception ex) {
+            preferences.edit().putString("unreadable_backup_archive", preferences.getString("backup_archive", "")).commit();
+            warning = "The backup list could not be read. Its original data was preserved.";
+        }
         // Persist the first-open date immediately, even if the user creates nothing yet.
         // This also commits a successful migration or backup recovery before normal use.
         if (!readOnly) save();
@@ -142,17 +163,81 @@ public final class GameStore {
         save(); completionNotice(before, bounty, base, requiredWasOutstanding, events, now); playEvents(events, now); return true;
     }
 
-    public void save() {
-        revision++;
-        if (readOnly) return;
-        try {
-            game.lastSeenAt = System.currentTimeMillis();
-            game.recordBalance(System.currentTimeMillis());
-            String encoded = GameCodec.encode(game).toString();
-            if (!preferences.edit().putString("backup", lastValidSave.isEmpty() ? encoded : lastValidSave).putString("state", encoded).commit()) {
-                warning = "Progress could not be saved. Please free some device storage.";
-            } else lastValidSave = encoded;
-        } catch (JSONException ex) { throw new IllegalStateException("Cannot serialize game", ex); }
+    public void appOpened() {
+        if (appOpen) return;
+        appOpen = true; sync(); backupNow("App opened");
+        backupHandler.removeCallbacks(periodicBackup); backupHandler.postDelayed(periodicBackup, 2 * 60 * 60 * 1000L);
     }
-
+    public void appClosed() {
+        if (!appOpen) return;
+        appOpen = false; backupHandler.removeCallbacks(periodicBackup); sync(); backupNow("App closed");
+    }
+    public java.util.List<BackupArchive.Entry> backups() { return new java.util.ArrayList<>(archive.entries); }
+    public boolean backupNow(String reason) {
+        if (!readOnly && !save(true)) return false;
+        String current = preferences.getString("state", "");
+        if (current.isEmpty()) return false;
+        try {
+            BackupArchive next = BackupArchive.decode(archive.encode());
+            next.add(System.currentTimeMillis(), reason, current);
+            if (!preferences.edit().putString("backup_archive", next.encode()).commit()) {
+                warning = "Backup could not be saved. Please free some device storage."; return false;
+            }
+            archive = next; return true;
+        } catch (JSONException ex) { warning = "Backup could not be saved."; return false; }
+    }
+    public String exportSave() throws java.io.IOException {
+        sync();
+        if (!readOnly && !save(true)) throw new java.io.IOException("Current progress could not be saved");
+        return preferences.getString("state", "");
+    }
+    public void restoreSave(String text, String reason) throws Exception {
+        Game candidate = SaveImports.decode(text, System.currentTimeMillis(), ZoneId.systemDefault());
+        BalanceHistory.prune(candidate.balances, System.currentTimeMillis(), ZoneId.systemDefault());
+        // Validation must finish before creating a backup or touching current progress.
+        String encoded = SaveCompression.pack(GameCodec.encode(candidate).toString());
+        sync();
+        if (!backupNow(reason)) throw new java.io.IOException("Could not back up current progress. Nothing was restored.");
+        String previous = preferences.getString("state", "");
+        if (!preferences.edit().putString("backup", previous).putString("state", encoded).commit())
+            throw new java.io.IOException("Could not save restored progress");
+        handler.removeCallbacksAndMessages(null); notices.clear(); lawWarningStarts.clear();
+        saveGeneration++; compressionHandler.removeCallbacksAndMessages(null);
+        game = candidate; lastValidSave = encoded; readOnly = false; revision++;
+    }
+    private void refineSave(String json, String saved, long generation) {
+        compressionHandler.removeCallbacksAndMessages(null);
+        compressionHandler.postDelayed(() -> {
+            if (compressionTask != null) compressionTask.cancel(false);
+            compressionTask = compressionWorker.submit(() -> {
+                try {
+                    String shorter = SaveCompression.pack(json);
+                    if (shorter.length() >= saved.length()) return;
+                    compressionHandler.post(() -> {
+                        if (readOnly || saveGeneration != generation || !lastValidSave.equals(saved)) return;
+                        if (preferences.edit().putString("state", shorter).commit()) lastValidSave = shorter;
+                    });
+                } catch (Exception ignored) { /* The already committed fast save remains valid. */ }
+            });
+        }, 500);
+    }
+    public boolean save() { return save(false); }
+    private boolean save(boolean strongest) {
+        revision++;
+        if (readOnly) return false;
+        long generation = ++saveGeneration; compressionHandler.removeCallbacksAndMessages(null);
+        try {
+            long now = System.currentTimeMillis(); game.lastSeenAt = now;
+            BalanceHistory.prune(game.balances, now, ZoneId.systemDefault()); game.recordBalance(now);
+            String json = GameCodec.encode(game).toString();
+            String encoded = strongest ? SaveCompression.pack(json) : SaveCompression.packFast(json);
+            String previous = lastValidSave.isEmpty() ? encoded : lastValidSave;
+            // Upgrade a legacy recovery copy too; migration snapshots remain untouched.
+            if (!SaveCompression.isPacked(previous)) previous = SaveCompression.pack(SaveCompression.unpack(previous));
+            if (!preferences.edit().putString("backup", previous).putString("state", encoded).commit()) {
+                warning = "Progress could not be saved. Please free some device storage."; return false;
+            }
+            lastValidSave = encoded; if (!strongest) refineSave(json, encoded, generation); return true;
+        } catch (Exception ex) { android.util.Log.e("BulletinSave", "Save encoding failed", ex); warning = "Progress could not be saved. Your previous save is preserved."; return false; }
+    }
 }

@@ -24,7 +24,7 @@ public class StatisticsTest {
     }
     @Test public void pausesAndRelaunchPreserveActualFocusAndExcludeRest() throws Exception {
         Game g = new Game(now, zone); Game.Quest q = quest(g, "Focus"); g.energy = Game.DEAD;
-        g.start(q, now); g.cancelQuest(now + 5000); assertEquals(5000, g.focus.get(0).millis);
+        g.start(q, now); g.pauseQuest(now + 5000); assertEquals(5000, g.focus.get(0).millis);
         g = GameCodec.decode(GameCodec.encode(g).toString(), now + 10000, zone); q = g.quests.get(0);
         g.start(q, now + 10000); g.advance(now + 35000, zone);
         assertEquals(20000, g.focus.get(0).millis); assertNull(g.session);

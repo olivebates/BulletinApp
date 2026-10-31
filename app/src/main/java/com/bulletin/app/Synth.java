@@ -23,6 +23,8 @@ public final class Synth {
     private int activeStream;
     private long warningUntil;
     private Runnable warningStarted;
+    private android.media.MediaPlayer alarm;
+    public int warningDurationMillis = WARNING_MILLIS;
 
     public Synth(Context context) {
         pool = new SoundPool.Builder().setMaxStreams(8).setAudioAttributes(new AudioAttributes.Builder()
@@ -35,6 +37,13 @@ public final class Synth {
                 }
             }
         });
+        try (android.content.res.AssetFileDescriptor asset = context.getAssets().openFd("alarmsfx.ogg")) {
+            alarm = new android.media.MediaPlayer();
+            alarm.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+            alarm.setDataSource(asset.getFileDescriptor(), asset.getStartOffset(), asset.getLength()); alarm.prepare();
+            alarm.setVolume(.75f, .75f); warningDurationMillis = Math.max(1, alarm.getDuration());
+            alarm.setOnCompletionListener(player -> warningUntil = 0);
+        } catch (IOException | RuntimeException ex) { if (alarm != null) alarm.release(); alarm = null; }
         for (int effect = 0; effect < ids.length; effect++) {
             File file = new File(context.getCacheDir(), (effect == WARNING ? "synth-swell-v1-" : "synth-v2-") + effect + ".wav");
             try {
@@ -44,6 +53,12 @@ public final class Synth {
         }
     }
     public void play(int effect) {
+        if (effect == WARNING && alarm != null) {
+            queued.clear(); if (activeStream != 0) pool.stop(activeStream);
+            alarm.seekTo(0); alarm.start(); warningUntil = android.os.SystemClock.uptimeMillis() + warningDurationMillis;
+            if (warningStarted != null) { Runnable started = warningStarted; warningStarted = null; started.run(); }
+            return;
+        }
         int id = ids[effect];
         if (id == 0) return;
         if (loaded.contains(id)) playLoaded(id);

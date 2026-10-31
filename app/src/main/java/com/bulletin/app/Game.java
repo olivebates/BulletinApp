@@ -236,6 +236,7 @@ public final class Game {
     public final List<FocusEntry> focus = new ArrayList<>();
     public long analyticsSince;
     public final List<BalancePoint> balances = new ArrayList<>();
+    public long balanceRangeStart, balanceRangeEnd;
     public static final class UndoEntry {
         public String questId;
         public String categoryId = "";
@@ -257,6 +258,7 @@ public final class Game {
     public final List<String> randomQuestIds = new ArrayList<>();
     /** New categories are selected by default; an empty category ID means uncategorized. */
     public final List<String> excludedRandomCategories = new ArrayList<>();
+    public final List<String> collapsedAnalyticsSections = new ArrayList<>();
     public final List<Quest> deletedQuests = new ArrayList<>();
     public long firstOpenedDay;
 
@@ -496,6 +498,7 @@ public final class Game {
                     law.amountUsed = 0; law.remainingMillis = law.timeLimitMillis;
                     if (law.endsAt > 0) law.endsAt = midnight + law.timeLimitMillis;
                 }
+                for (Quest q : quests) if (isPaused(q)) resetQuestTimer(q);
                 undo.clear();
                 bountyChanges.clear(); bountyBase = 100;
                 quests.removeIf(q -> !q.forever && q.firstDay < day);
@@ -515,7 +518,7 @@ public final class Game {
         if (session != null && session.phase == QUEST && !session.timed) finish(now, events);
         return events;
     }
-    public boolean cancelQuest(long now) {
+    public boolean pauseQuest(long now) {
         if (session == null || session.phase != QUEST) return false;
         if (session.timed && now >= session.endsAt) return false;
         accountTime(now);
@@ -527,6 +530,21 @@ public final class Game {
             break;
         }
         session = null; return true;
+    }
+    public boolean isPaused(Quest q) {
+        return quests.contains(q) && q.remainingMillis > 0
+            && (session == null || session.phase != QUEST || !session.questId.equals(q.id));
+    }
+    private void resetQuestTimer(Quest q) {
+        q.remainingMillis = -1; q.pausedRewardMinutes = -1; q.pausedReferenceMinutes = -1;
+        q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1; q.pausedRestMillis = -1;
+    }
+    public boolean cancelQuest(Quest q, long now) {
+        if (!quests.contains(q)) return false;
+        boolean active = session != null && session.phase == QUEST && session.questId.equals(q.id);
+        if (!active && !isPaused(q)) return false;
+        if (active) { accountTime(now); session = null; }
+        resetQuestTimer(q); return true;
     }
     private void finish(long at, List<Event> events) {
         boolean requiredWasOutstanding = requiredPenalty().days > 0;

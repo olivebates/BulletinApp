@@ -19,6 +19,18 @@ public class AnalyticsGroupsTest {
     private void record(Game g, Game.Quest q, long amount) {
         g.history.add(new Game.HistoryEntry(Game.QUEST_HISTORY, q.id, q.name, now)); g.focus.add(new Game.FocusEntry(q.id, q.name, g.day, amount));
     }
+    @Test public void analyticsSectionsStartExpandedAndSaveIndependentlyFromBoardAndOtherPages() throws Exception {
+        Game g = new Game(now, zone); Game.Category c = new Game.Category(); c.id = "home"; c.collapsed = true; g.addCategory(c);
+        org.json.JSONObject old = GameCodec.encode(g); old.remove("collapsedAnalyticsSections"); old.put("version", 15);
+        Game migrated = GameCodec.decode(old.toString(), now, zone);
+        assertTrue(migrated.category(c.id).collapsed); assertTrue(migrated.collapsedAnalyticsSections.isEmpty());
+        migrated.collapsedAnalyticsSections.add("0:0:home");
+        Game loaded = GameCodec.decode(GameCodec.encode(migrated).toString(), now, zone);
+        assertTrue(loaded.collapsedAnalyticsSections.contains("0:0:home"));
+        assertFalse(loaded.collapsedAnalyticsSections.contains("0:2:home"));
+        assertFalse(loaded.collapsedAnalyticsSections.contains("1:0:home"));
+        loaded.collapsedAnalyticsSections.clear(); assertTrue(loaded.category(c.id).collapsed);
+    }
     @Test public void pieExcludesSinglesInactiveAndHistoricalBeforeComputingPercentages() {
         Game g = new Game(now, zone); Game.Quest active = quest(g, "Active", ""), single = quest(g, "Single", ""), future = quest(g, "Future", "");
         record(g, active, 1000); record(g, single, 999999); record(g, future, 999999); single.repeatable = false; future.firstDay++;

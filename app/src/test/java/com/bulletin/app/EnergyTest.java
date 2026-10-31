@@ -41,7 +41,7 @@ public class EnergyTest {
         Game g = new Game(now, zone); g.restMinutes = 0; Game.Quest q = quest(g, true); g.energy = Game.DEAD;
         assertTrue(g.start(q, now)); assertEquals(now + 20000, g.session.endsAt); assertEquals(2, g.activeBounty());
         g.energy = Game.EXTRA; g.questMinutes = 30; assertEquals(2, g.activeBounty());
-        assertTrue(g.cancelQuest(now + 5000)); assertEquals(15000, g.remainingFor(q, now + 5000)); assertEquals(2, g.bountyFor(q));
+        assertTrue(g.pauseQuest(now + 5000)); assertEquals(15000, g.remainingFor(q, now + 5000)); assertEquals(2, g.bountyFor(q));
         Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 10000, zone);
         Game.Quest resumed = loaded.quests.get(0); assertEquals(Game.EXTRA, loaded.energy);
         assertTrue(loaded.start(resumed, now + 10000)); assertEquals(now + 25000, loaded.session.endsAt);
@@ -51,7 +51,7 @@ public class EnergyTest {
     @Test public void extremeDurationAndRestSurvivePauseAndRelaunch() throws Exception {
         Game g = new Game(now, zone); g.questMinutes = 240; g.energy = Game.EXTREME; Game.Quest q = quest(g, true);
         assertTrue(g.start(q, now)); assertEquals(now + 90 * 60000L, g.session.endsAt);
-        g.cancelQuest(now + 1000);
+        g.pauseQuest(now + 1000);
         Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 2000, zone);
         assertEquals(90 * 60000L - 1000, loaded.quests.get(0).remainingMillis);
         assertEquals(360, loaded.bountyFor(loaded.quests.get(0)));

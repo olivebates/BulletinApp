@@ -5,7 +5,7 @@ import org.json.JSONObject;
 import java.time.ZoneId;
 import java.time.LocalDate;
 final class GameCodec {
-    static final int VERSION = 15;
+    static final int VERSION = 17;
     static final class FutureVersion extends JSONException {
         FutureVersion() { super("This save requires a newer app version"); }
     }
@@ -17,7 +17,7 @@ final class GameCodec {
         o.put("lastSeenAt", g.lastSeenAt).put("swipeHintShown", g.swipeHintShown).put("boardOrder", new JSONArray(g.boardOrder));
         JSONArray categories = new JSONArray();
         for (Game.Category c : g.categories) categories.put(new JSONObject().put("id", c.id).put("name", c.name).put("hue", c.hue).put("collapsed", c.collapsed).put("mustDo", c.mustDo).put("requireAll", c.requireAll).put("requiredTasks", c.requiredTasks).put("progressDay", c.progressDay).put("progressCount", c.progressCount).put("completedQuestIds", new JSONArray(c.completedQuestIds)).put("fulfilledDay", c.fulfilledDay).put("fulfilledTarget", c.fulfilledTarget));
-        o.put("categories", categories);
+        o.put("categories", categories).put("collapsedAnalyticsSections", new JSONArray(g.collapsedAnalyticsSections));
         o.put("version", VERSION).put("day", g.day).put("days", g.days).put("coins", g.coins)
             .put("firstOpenedDay", g.firstOpenedDay)
             .put("timedMillisToday", g.timedMillisToday)
@@ -60,7 +60,7 @@ final class GameCodec {
         o.put("bountyChanges", changes);
         JSONArray balances = new JSONArray();
         for (Game.BalancePoint point : g.balances) balances.put(new JSONObject().put("at", point.at).put("cents", point.cents).put("cause", point.cause));
-        o.put("balances", balances);
+        o.put("balances", balances).put("balanceRangeStart", g.balanceRangeStart).put("balanceRangeEnd", g.balanceRangeEnd);
         JSONArray undo = new JSONArray();
         for (Game.UndoEntry e : g.undo) undo.put(new JSONObject().put("questId", e.questId).put("at", e.at)
             .put("reward", e.reward).put("bountyBefore", e.bountyBefore).put("bountyAfter", e.bountyAfter));
@@ -77,6 +77,7 @@ final class GameCodec {
 
     static Game decode(String text, long now, ZoneId zone) throws JSONException {
         Game g = new Game(now, zone);
+        try { text = SaveCompression.unpack(text); } catch (java.io.IOException ex) { throw new JSONException(ex.getMessage()); }
         if (text.isEmpty()) return g;
         JSONObject o = new JSONObject(text);
         int version = o.optInt("version", 1);
@@ -89,6 +90,8 @@ final class GameCodec {
         }
         g.lastSeenAt = o.optLong("lastSeenAt", now);
         g.swipeHintShown = o.optBoolean("swipeHintShown", o.optInt("questsCreated") > 0);
+        JSONArray collapsedAnalytics = o.optJSONArray("collapsedAnalyticsSections");
+        if (collapsedAnalytics != null) for (int i = 0; i < collapsedAnalytics.length(); i++) g.collapsedAnalyticsSections.add(collapsedAnalytics.getString(i));
         JSONArray order = o.optJSONArray("boardOrder");
         if (order != null) for (int i = 0; i < order.length(); i++) g.boardOrder.add(order.getString(i));
         JSONArray categories = o.optJSONArray("categories");
@@ -186,6 +189,7 @@ final class GameCodec {
             Game.HistoryEntry entry = new Game.HistoryEntry(e.getString("kind"), e.getString("id"), e.getString("name"), e.getLong("at"));
             entry.count = Math.max(1, e.optInt("count", 1)); entry.dateOnly = e.optBoolean("dateOnly"); g.history.add(entry);
         }
+        g.balanceRangeStart = o.optLong("balanceRangeStart", 0); g.balanceRangeEnd = o.optLong("balanceRangeEnd", 0);
         g.balances.clear();
         JSONArray points = o.optJSONArray("balances");
         if (version >= 3 && points != null) for (int i = 0; i < points.length(); i++) {
