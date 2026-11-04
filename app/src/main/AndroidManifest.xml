@@ -18,6 +18,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".MeditationActivity" android:exported="false" />
+        <activity android:name=".PdfLibraryActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity android:name=".PdfReaderActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+        <service android:name=".MeditationService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started repeating meditation bell with a visible pause notification" />
+        </service>
         <service android:name=".TimerService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-started quest, rest and law allowance countdowns with completion or warning sounds and ongoing countdown notifications" />

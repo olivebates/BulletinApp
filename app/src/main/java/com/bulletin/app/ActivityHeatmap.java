@@ -37,7 +37,7 @@ final class ActivityHeatmap extends View {
                 paint.setColor(ui.muted); paint.setAlpha(255); canvas.drawText(date.format(DateTimeFormatter.ofPattern("MMM")), left + col * step, ui.dp(13), paint); previousMonth = date.getMonthValue();
             }
             long value = series.days.getOrDefault(day, 0L);
-            paint.setColor(ui.border); paint.setAlpha(value == 0 ? 24 : Math.max(35, (int) (255d * value / Math.max(1, data.maximum))));
+            paint.setColor(ui.border); paint.setAlpha(series.heatAlpha(value));
             canvas.drawRoundRect(left + col * step, top + row * step, left + (col + 1) * step - 2, top + (row + 1) * step - 2, 1, 1, paint);
         }
         paint.setAlpha(255); paint.setColor(ui.muted); paint.setTextSize(ui.dp(9));

@@ -38,13 +38,13 @@ public class DailyRulesTest {
         assertTrue(g.start(g.boardQuests().get(0), now)); g.advance(now + 1500000, zone);
         assertEquals(2, g.boardQuests().size()); assertTrue(g.randomQuestIds.stream().noneMatch(previous::contains));
     }
-    @Test public void selectedCompletedSingleCanBeRestoredOutOfOrderWithItsRewardAndBountyReversed() {
+    @Test public void untimedSinglesRestoreOutOfOrderWithoutAddingBountyGrowth() {
         Game g = new Game(now, zone); Game.Quest first = quest(g, false), second = quest(g, false), third = quest(g, false);
         g.completeInstant(first, now); g.completeInstant(second, now + 1); g.completeInstant(third, now + 2);
-        assertEquals(100, g.coins); assertEquals(134, g.nextBounty);
-        assertTrue(g.restoreOneOff(first.id, now + 3)); assertEquals(70, g.coins); assertEquals(121, g.nextBounty);
+        assertEquals(90, g.coins); assertEquals(100, g.nextBounty);
+        assertTrue(g.restoreOneOff(first.id, now + 3)); assertEquals(60, g.coins); assertEquals(100, g.nextBounty);
         assertFalse(first.done(g.day)); assertEquals(2, g.completedOneOffs().size());
-        assertTrue(g.restoreOneOff(third.id, now + 4)); assertEquals(33, g.coins); assertEquals(110, g.nextBounty);
+        assertTrue(g.restoreOneOff(third.id, now + 4)); assertEquals(30, g.coins); assertEquals(100, g.nextBounty);
         assertTrue(g.restoreOneOff(second.id, now + 5)); assertEquals(0, g.coins); assertEquals(100, g.nextBounty);
         assertFalse(g.restoreOneOff(first.id, now + 6));
     }
@@ -55,11 +55,11 @@ public class DailyRulesTest {
     @Test public void allRestoreRecordsAndBountyChangesSurviveRestart() throws Exception {
         Game g = new Game(now, zone);
         for (int i = 0; i < 15; i++) g.completeInstant(quest(g, false), now + i);
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 20, zone);
+        Game.Quest timed = quest(g, true); g.start(timed, now + 20); g.advance(now + 1500020, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now + 1500021, zone);
         assertEquals(15, loaded.completedOneOffs().size()); assertEquals(15, loaded.undo.size());
         assertTrue(loaded.restoreOneOff(loaded.completedOneOffs().get(0).id, now + 21));
-        long base = 100; for (int i = 0; i < 14; i++) base = Game.raiseBounty(base);
-        assertEquals(base, loaded.nextBounty);
+        assertEquals(110, loaded.nextBounty); assertEquals(0, loaded.bountyProgressMillis());
     }
     @Test public void deletingAnEntityDeletesAllOfItsTimelineHistoryAndRestoreRecords() {
         Game g = new Game(now, zone); Game.Quest a = quest(g, false), b = quest(g, false);
@@ -73,8 +73,8 @@ public class DailyRulesTest {
     }
     @Test public void upgradingAnOlderSaveRecoversMoreThanTenCompletedTasks() throws Exception {
         Game g = new Game(now, zone);
-        for (int i = 0; i < 15; i++) g.completeInstant(quest(g, false), now + i);
-        org.json.JSONObject old = GameCodec.encode(g).put("version", 5);
+        for (int i = 0; i < 15; i++) { long before = g.nextBounty; g.completeInstant(quest(g, false), now + i); g.nextBounty = Game.raiseBounty(before); g.undo.get(g.undo.size() - 1).bountyAfter = g.nextBounty; }
+        org.json.JSONObject old = GameCodec.encodeLegacy(g).put("version", 5);
         old.remove("bountyChanges"); old.remove("bountyBase");
         org.json.JSONArray latest = new org.json.JSONArray(), all = old.getJSONArray("undo");
         for (int i = 5; i < all.length(); i++) latest.put(all.get(i));

@@ -1,0 +1,13 @@
+package com.bulletin.app;
+import org.junit.Test;
+import static org.junit.Assert.*;
+import java.util.*;
+import java.nio.file.*;
+public class NewToolsTest {
+    @Test public void pageGapAnchorSurvivesResizeWithoutJumping(){PdfGeometry g=new PdfGeometry(new float[]{1.4f,1.2f});double original=g.top(1,1000,24)-9;int page=g.page(original,1000,24);double fraction=g.fraction(page,original,1000,24),inGap=g.gapFraction(page,original,1000,24);double restored=g.position(page,fraction,1700,24)+inGap*24;assertEquals(g.top(1,1700,24)-9,restored,.00001);}
+    @Test public void bellAttackRisesSmoothlyOverOneAndAHalfSeconds(){assertEquals(0,BellEnvelope.attack(0),0);assertEquals(.5,BellEnvelope.attack(.75),.00001);assertEquals(1,BellEnvelope.attack(1.5),0);double last=0;for(int i=0;i<=150;i++){double next=BellEnvelope.attack(i/100d);assertTrue(next>=last);last=next;}}
+    @Test public void bellsNeverRepeatAndAllThreeAreUsed(){BellSequence bells=new BellSequence();Random random=new Random(12);int previous=-1;Set<Integer> all=new HashSet<>();for(int i=0;i<1000;i++){int next=bells.next(random);assertTrue(next>=0&&next<3);assertNotEquals(previous,next);all.add(next);previous=next;}assertEquals(3,all.size());}
+    @Test public void intervalValidatesSeparateMinutesAndSeconds(){assertEquals(61000,BellSequence.interval("1","1"));assertEquals(1000,BellSequence.interval("","1"));assertEquals(-1,BellSequence.interval("0","0"));assertEquals(-1,BellSequence.interval("1","60"));assertEquals(-1,BellSequence.interval("-1","0"));assertEquals(-1,BellSequence.interval("99999999999999999999","0"));}
+    @Test public void rotationKeepsTopPageAndFraction(){PdfGeometry g=new PdfGeometry(new float[]{1.4f,.7f,2f});double y=g.position(1,.36,1080,12);int page=g.page(y,1080,12);double fraction=g.fraction(page,y,1080,12);double rotated=g.position(page,fraction,1920,12);assertEquals(1,g.page(rotated,1920,12));assertEquals(.36,g.fraction(1,rotated,1920,12),.000001);}
+    @Test public void reflectionsAreDistinctSingleSentencesWithoutAttribution()throws Exception{Path path=Paths.get("src/main/assets/meditation-quotes.tsv");if(!Files.exists(path))path=Paths.get("app/src/main/assets/meditation-quotes.tsv");List<String> lines=Files.readAllLines(path);assertEquals(120,lines.size());Set<String> words=new HashSet<>();for(String line:lines){String[] parts=line.split("\t",2);assertEquals(2,parts.length);assertTrue(parts[0].matches("[0-9]+"));assertTrue(parts[1].length()>25);assertTrue(words.add(parts[1]));java.text.BreakIterator sentences=java.text.BreakIterator.getSentenceInstance(Locale.ENGLISH);sentences.setText(parts[1]);sentences.first();assertTrue(sentences.next()!=java.text.BreakIterator.DONE);assertEquals(java.text.BreakIterator.DONE,sentences.next());}}
+}

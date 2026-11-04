@@ -177,10 +177,10 @@ public class GameTest {
         assertEquals(3, g.balances.size()); assertEquals(0, g.balances.get(2).cents);
         g.incurFine(f, NOW + 4000); assertEquals(-1000, g.balances.get(3).cents);
     }
-    @Test public void timelineWindowIsThreeCalendarMonthsClampedToFirstOpen() {
+    @Test public void timelineWindowIncludesAllRecordedTime() {
         Game g = game(); assertEquals(g.day, g.timelineStart(g.day)); g.firstOpenedDay = LocalDate.parse("2026-01-01").toEpochDay();
-        assertEquals(LocalDate.parse("2026-07-29").toEpochDay(), g.timelineStart(g.day));
-        assertEquals(LocalDate.parse("2026-02-28").toEpochDay(), g.timelineStart(LocalDate.parse("2026-05-31").toEpochDay()));
+        assertEquals(g.firstOpenedDay, g.timelineStart(g.day));
+        assertEquals(g.firstOpenedDay, g.timelineStart(LocalDate.parse("2026-05-31").toEpochDay()));
     }
     @Test public void extremeBalancesAndFineEscalationDoNotOverflow() {
         Game g = game(); g.nextBounty = Game.LIMIT; g.coins = Game.LIMIT - 1; complete(g, quest(g, true, false, true), NOW);

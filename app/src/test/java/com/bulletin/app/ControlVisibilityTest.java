@@ -16,12 +16,12 @@ public class ControlVisibilityTest {
         Game.Quest a = add(g, false), b = add(g, false); assertFalse(g.questControlsUnlocked());
         Game.Quest c = add(g, false); assertTrue(g.questControlsUnlocked());
         g.deleteQuest(a); g.deleteQuest(b); g.deleteQuest(c);
-        assertTrue(GameCodec.decode(GameCodec.encode(g).toString(), now, zone).questControlsUnlocked());
+        assertTrue(GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone).questControlsUnlocked());
     }
     @Test public void firstCreatedLawPermanentlyUnlocksLawControls() throws Exception {
         Game g = new Game(now, zone); assertFalse(g.lawControlsUnlocked());
         Game.Fine law = new Game.Fine(); g.addLaw(law); assertTrue(g.lawControlsUnlocked());
-        g.deleteLaw(law); assertTrue(GameCodec.decode(GameCodec.encode(g).toString(), now, zone).lawControlsUnlocked());
+        g.deleteLaw(law); assertTrue(GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone).lawControlsUnlocked());
     }
     @Test public void energyRequiresDueRepeatableQuestOrRunningTimedSession() {
         Game g = new Game(now, zone); add(g, false); assertFalse(g.hasActiveRepeatableQuests());
@@ -36,7 +36,7 @@ public class ControlVisibilityTest {
         g.history.add(new Game.HistoryEntry(Game.QUEST_HISTORY, "expired", "Old quest", now));
         g.history.add(new Game.HistoryEntry(Game.QUEST_HISTORY, "expired", "Old quest", now + 1));
         g.history.add(new Game.HistoryEntry(Game.FINE_HISTORY, "removed-law", "Old law", now));
-        org.json.JSONObject old = GameCodec.encode(g); old.remove("questsCreated"); old.remove("lawsCreated");
+        org.json.JSONObject old = GameCodec.encodeLegacy(g); old.remove("questsCreated"); old.remove("lawsCreated");
         Game loaded = GameCodec.decode(old.toString(), now, zone);
         assertEquals(3, loaded.questsCreated); assertEquals(1, loaded.lawsCreated);
         assertTrue(loaded.questControlsUnlocked()); assertTrue(loaded.lawControlsUnlocked());

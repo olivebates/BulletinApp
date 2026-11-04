@@ -18,7 +18,7 @@ public class StatisticsRangeTest {
         assertEquals(day, Statistics.rangeStart(day, 0)); assertEquals(day - 6, Statistics.rangeStart(day, 1));
         assertEquals(LocalDate.of(2026, 10, 1).toEpochDay(), Statistics.rangeStart(day, 2));
         assertEquals(LocalDate.of(2026, 7, 31).toEpochDay(), Statistics.rangeStart(day, 3));
-        assertEquals(LocalDate.of(2025, 10, 31).toEpochDay(), Statistics.rangeStart(day, 4));
+        assertEquals(Long.MIN_VALUE, Statistics.rangeStart(day, 4));
     }
     @Test public void questTimeAndLawReportsExcludeOutsideDatesAndIncludeFirstDay() {
         Game g = new Game(now, zone); Game.Quest q = quest(g, "Focus");

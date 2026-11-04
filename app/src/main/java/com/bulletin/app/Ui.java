@@ -111,6 +111,10 @@ final class Ui {
                     Path pencil = new Path(); pencil.moveTo(4, 20); pencil.lineTo(5, 14); pencil.lineTo(16, 3);
                     pencil.lineTo(21, 8); pencil.lineTo(10, 19); pencil.close(); canvas.drawPath(pencil, p);
                     line(canvas, 13, 6, 18, 11); line(canvas, 5, 14, 10, 19); break;
+                case "eye-open":
+                    canvas.drawArc(3, 6, 21, 18, 180, 180, false, p); canvas.drawArc(3, 6, 21, 18, 0, 180, false, p); canvas.drawCircle(12, 12, 3, p); break;
+                case "eye-closed":
+                    canvas.drawArc(3, 6, 21, 18, 0, 180, false, p); line(canvas, 5, 16, 3, 19); line(canvas, 9, 18, 8, 21); line(canvas, 15, 18, 16, 21); line(canvas, 19, 16, 21, 19); break;
                 case "clock":
                     canvas.drawCircle(12, 12, 9, p); line(canvas, 12, 6, 12, 12); line(canvas, 12, 12, 16, 14); break;
                 case "fine":

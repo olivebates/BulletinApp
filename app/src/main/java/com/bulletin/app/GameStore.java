@@ -60,18 +60,18 @@ public final class GameStore {
             lastValidSave = preferences.getString("state", "");
             if (lastValidSave.isEmpty() && preferences.contains("state")) throw new JSONException("Empty save");
             loaded = GameCodec.decode(lastValidSave, System.currentTimeMillis(), ZoneId.systemDefault());
-            if (!lastValidSave.isEmpty() && new JSONObject(SaveCompression.unpack(lastValidSave)).optInt("version", 1) < 4 && !preferences.contains("before_v4")) {
+            if (!lastValidSave.isEmpty() && GameCodec.json(lastValidSave).optInt("version", 1) < 4 && !preferences.contains("before_v4")) {
                 preferences.edit().putString("before_v4", lastValidSave).commit();
             }
-            if (!lastValidSave.isEmpty() && new JSONObject(SaveCompression.unpack(lastValidSave)).optInt("version", 1) < 3) {
+            if (!lastValidSave.isEmpty() && GameCodec.json(lastValidSave).optInt("version", 1) < 3) {
                 if (!preferences.contains("before_v3")) preferences.edit().putString("before_v3", lastValidSave).commit();
                 for (String key : new String[]{"before_v2", "backup"}) {
                     String old = preferences.getString(key, "");
-                    if (!old.isEmpty()) try { loaded.firstOpenedDay = Math.min(loaded.firstOpenedDay, new JSONObject(SaveCompression.unpack(old)).getLong("day")); }
+                    if (!old.isEmpty()) try { loaded.firstOpenedDay = Math.min(loaded.firstOpenedDay, GameCodec.json(old).getLong("day")); }
                     catch (Exception ignored) { }
                 }
             }
-            if (!lastValidSave.isEmpty() && new JSONObject(SaveCompression.unpack(lastValidSave)).optInt("version", 1) == 1
+            if (!lastValidSave.isEmpty() && GameCodec.json(lastValidSave).optInt("version", 1) == 1
                     && !preferences.contains("before_v2")) {
                 preferences.edit().putString("before_v2", lastValidSave).commit();
             }
@@ -99,6 +99,13 @@ public final class GameStore {
             preferences.edit().putString("unreadable_backup_archive", preferences.getString("backup_archive", "")).commit();
             warning = "The backup list could not be read. Its original data was preserved.";
         }
+        if(!readOnly&&!lastValidSave.isEmpty()&&!preferences.contains("before_v18"))try{
+            if(GameCodec.json(lastValidSave).optInt("version",1)<18){
+                BackupArchive before=BackupArchive.decode(archive.encode());before.add(System.currentTimeMillis(),"Before history compaction",lastValidSave);
+                if(preferences.edit().putString("before_v18",lastValidSave).putString("backup_archive",before.encode()).commit())archive=before;
+                else {readOnly=true;warning="Could not back up the old save. Free storage before upgrading history.";}
+            }
+        }catch(Exception ex){readOnly=true;warning="The old save is preserved; history upgrade needs recovery.";}
         // Persist the first-open date immediately, even if the user creates nothing yet.
         // This also commits a successful migration or backup recovery before normal use.
         if (!readOnly) save();
@@ -194,6 +201,7 @@ public final class GameStore {
     public void restoreSave(String text, String reason) throws Exception {
         Game candidate = SaveImports.decode(text, System.currentTimeMillis(), ZoneId.systemDefault());
         BalanceHistory.prune(candidate.balances, System.currentTimeMillis(), ZoneId.systemDefault());
+        HistoryAggregation.aggregate(candidate,ZoneId.systemDefault());candidate.aggregationDay=candidate.day;
         // Validation must finish before creating a backup or touching current progress.
         String encoded = SaveCompression.pack(GameCodec.encode(candidate).toString());
         sync();
@@ -228,7 +236,9 @@ public final class GameStore {
         long generation = ++saveGeneration; compressionHandler.removeCallbacksAndMessages(null);
         try {
             long now = System.currentTimeMillis(); game.lastSeenAt = now;
-            BalanceHistory.prune(game.balances, now, ZoneId.systemDefault()); game.recordBalance(now);
+            BalanceHistory.prune(game.balances, now, ZoneId.systemDefault());
+            if(game.aggregationDay!=game.day){HistoryAggregation.aggregate(game,ZoneId.systemDefault());game.aggregationDay=game.day;}
+            game.recordBalance(now);
             String json = GameCodec.encode(game).toString();
             String encoded = strongest ? SaveCompression.pack(json) : SaveCompression.packFast(json);
             String previous = lastValidSave.isEmpty() ? encoded : lastValidSave;

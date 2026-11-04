@@ -27,7 +27,7 @@ public class CategoryFilterTrashTest {
         Game g = new Game(now, zone); Game.Category c = category(g, "C"); Game.Quest q = quest(g, c.id), other = quest(g, "");
         g.randomMode = true; g.setRandomCategoryEnabled(c.id, false);
         g.history.add(new Game.HistoryEntry(Game.QUEST_HISTORY, q.id, q.name, now)); g.focus.add(new Game.FocusEntry(q.id, q.name, g.day, 10000));
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone);
         assertEquals(other.id, loaded.boardQuests().get(0).id); assertEquals(2, loaded.activeRepeatableQuests().size());
         assertEquals(10000, new Statistics(loaded, false, now, zone).total); assertEquals(2, new Statistics(loaded, false, now, zone).heatSeries.size());
         loaded.randomMode = false; assertEquals(2, loaded.boardQuests().size());
@@ -47,7 +47,7 @@ public class CategoryFilterTrashTest {
         q.name = "Restore me"; q.hue = 42; q.emoji = "x"; q.prerequisites.add("Prepare"); g.coins = 1234;
         g.history.add(new Game.HistoryEntry(Game.QUEST_HISTORY, q.id, q.name, now)); g.focus.add(new Game.FocusEntry(q.id, q.name, g.day, 1000));
         g.deleteQuest(q); assertTrue(g.quests.isEmpty()); assertTrue(g.history.isEmpty()); assertTrue(g.focus.isEmpty());
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now, zone); assertEquals(1, loaded.deletedQuests.size());
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone); assertEquals(1, loaded.deletedQuests.size());
         assertTrue(loaded.restoreDeletedQuest(q.id, now + 1)); assertEquals(0, loaded.deletedQuests.size());
         Game.Quest restored = loaded.quests.get(0); assertEquals(c.id, restored.categoryId); assertEquals(42, restored.hue); assertEquals("x", restored.emoji); assertEquals("Prepare", restored.prerequisites.get(0));
         assertEquals(1234, loaded.coins); assertEquals(100, loaded.nextBounty); assertTrue(loaded.history.isEmpty()); assertEquals(1, loaded.questsCreated);

@@ -14,14 +14,14 @@ public class EnergyTest {
     @Test public void fixedQuestAndRestDurationsMatchEveryPreset() {
         Game g = new Game(now, zone); Game.Quest q = quest(g, true);
         int[] modes = {Game.EXTREME, Game.EXTRA, Game.NORMAL, Game.RELAX, Game.MINIMAL, Game.DEAD};
-        long[] durations = {5400000, 2700000, 1500000, 900000, 420000, 20000};
-        long[] rests = {1200000, 600000, 300000, 240000, 120000, 10000};
+        long[] durations = {5400000, 2700000, 1500000, 900000, 420000, 120000};
+        long[] rests = {1200000, 600000, 300000, 240000, 120000, 40000};
         for (int i = 0; i < modes.length; i++) { g.energy = modes[i]; assertEquals(durations[i], g.remainingFor(q, now)); assertEquals(rests[i], g.energyRestMillis()); }
         g.questMinutes = 1; g.energy = Game.LOW; assertEquals(420000, g.remainingFor(q, now));
     }
     @Test public void bountiesScaleFromNormalAndRoundUpToWholeCents() {
         Game g = new Game(now, zone); Game.Quest q = quest(g, true);
-        int[] modes = {Game.EXTREME, Game.EXTRA, Game.NORMAL, Game.RELAX, Game.MINIMAL, Game.DEAD}; long[] rewards = {360, 180, 100, 60, 28, 2};
+        int[] modes = {Game.EXTREME, Game.EXTRA, Game.NORMAL, Game.RELAX, Game.MINIMAL, Game.DEAD}; long[] rewards = {360, 180, 100, 60, 28, 8};
         for (int i = 0; i < modes.length; i++) { g.energy = modes[i]; assertEquals(rewards[i], g.bountyFor(q)); assertEquals(rewards[i], g.previewBounty()); }
         g.energy = Game.LOW; g.nextBounty = 101; assertEquals(29, g.bountyFor(q));
     }
@@ -39,26 +39,26 @@ public class EnergyTest {
     }
     @Test public void activeAndPausedQuestsKeepAcceptedDurationAndRewardAcrossChanges() throws Exception {
         Game g = new Game(now, zone); g.restMinutes = 0; Game.Quest q = quest(g, true); g.energy = Game.DEAD;
-        assertTrue(g.start(q, now)); assertEquals(now + 20000, g.session.endsAt); assertEquals(2, g.activeBounty());
-        g.energy = Game.EXTRA; g.questMinutes = 30; assertEquals(2, g.activeBounty());
-        assertTrue(g.pauseQuest(now + 5000)); assertEquals(15000, g.remainingFor(q, now + 5000)); assertEquals(2, g.bountyFor(q));
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 10000, zone);
+        assertTrue(g.start(q, now)); assertEquals(now + 120000, g.session.endsAt); assertEquals(8, g.activeBounty());
+        g.energy = Game.EXTRA; g.questMinutes = 30; assertEquals(8, g.activeBounty());
+        assertTrue(g.pauseQuest(now + 5000)); assertEquals(115000, g.remainingFor(q, now + 5000)); assertEquals(8, g.bountyFor(q));
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now + 10000, zone);
         Game.Quest resumed = loaded.quests.get(0); assertEquals(Game.EXTRA, loaded.energy);
-        assertTrue(loaded.start(resumed, now + 10000)); assertEquals(now + 25000, loaded.session.endsAt);
-        assertEquals(2, loaded.activeBounty()); loaded.advance(now + 25000, zone); assertEquals(2, loaded.coins);
-        assertEquals(10000, Game.restFor(loaded.session));
+        assertTrue(loaded.start(resumed, now + 10000)); assertEquals(now + 125000, loaded.session.endsAt);
+        assertEquals(8, loaded.activeBounty()); loaded.advance(now + 125000, zone); assertEquals(8, loaded.coins);
+        assertEquals(40000, Game.restFor(loaded.session));
     }
     @Test public void extremeDurationAndRestSurvivePauseAndRelaunch() throws Exception {
         Game g = new Game(now, zone); g.questMinutes = 240; g.energy = Game.EXTREME; Game.Quest q = quest(g, true);
         assertTrue(g.start(q, now)); assertEquals(now + 90 * 60000L, g.session.endsAt);
         g.pauseQuest(now + 1000);
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 2000, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now + 2000, zone);
         assertEquals(90 * 60000L - 1000, loaded.quests.get(0).remainingMillis);
         assertEquals(360, loaded.bountyFor(loaded.quests.get(0)));
     }
     @Test public void energyPersistsAndOlderSavesDefaultToNormal() throws Exception {
         Game g = new Game(now, zone); g.energy = Game.LOW;
-        org.json.JSONObject encoded = GameCodec.encode(g);
+        org.json.JSONObject encoded = GameCodec.encodeLegacy(g);
         assertEquals(Game.LOW, GameCodec.decode(encoded.toString(), now, zone).energy);
         encoded.remove("energy"); assertEquals(Game.NORMAL, GameCodec.decode(encoded.toString(), now, zone).energy);
     }
@@ -67,16 +67,16 @@ public class EnergyTest {
         assertEquals(Game.LIMIT / 2, Game.proportionalBounty(Game.LIMIT, false, 7200000, 14400000));
         assertTrue(Game.proportionalBounty(Game.LIMIT, false, 20000, 14400000) > 0);
     }
-    @Test public void deadUsesExactlyTwentySecondsOfQuestAndTenSecondsOfRest() {
+    @Test public void deadUsesExactlyTwoMinutesOfQuestAndFortySecondsOfRest() {
         Game g = new Game(now, zone); g.energy = Game.DEAD; Game.Quest q = quest(g, true);
-        g.start(q, now); g.advance(now + 19999, zone); assertEquals(Game.QUEST, g.session.phase);
-        g.advance(now + 20000, zone); assertEquals(Game.REST, g.session.phase); assertEquals(now + 30000, g.session.endsAt);
-        g.advance(now + 29999, zone); assertNotNull(g.session);
-        g.advance(now + 30000, zone); assertNull(g.session);
+        g.start(q, now); g.advance(now + 119999, zone); assertEquals(Game.QUEST, g.session.phase);
+        g.advance(now + 120000, zone); assertEquals(Game.REST, g.session.phase); assertEquals(now + 160000, g.session.endsAt);
+        g.advance(now + 159999, zone); assertNotNull(g.session);
+        g.advance(now + 160000, zone); assertNull(g.session);
     }
     @Test public void legacyRestMinutesArePreservedWithoutNewRestField() throws Exception {
         Game g = new Game(now, zone); g.start(quest(g, true), now);
-        org.json.JSONObject saved = GameCodec.encode(g).put("version", 9);
+        org.json.JSONObject saved = GameCodec.encodeLegacy(g).put("version", 9);
         saved.getJSONObject("session").remove("restMillis"); saved.getJSONObject("session").put("restMinutes", 4);
         Game restored = GameCodec.decode(saved.toString(), now, zone);
         assertEquals(240000, Game.restFor(restored.session));

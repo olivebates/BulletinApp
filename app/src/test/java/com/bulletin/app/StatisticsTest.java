@@ -25,19 +25,19 @@ public class StatisticsTest {
     @Test public void pausesAndRelaunchPreserveActualFocusAndExcludeRest() throws Exception {
         Game g = new Game(now, zone); Game.Quest q = quest(g, "Focus"); g.energy = Game.DEAD;
         g.start(q, now); g.pauseQuest(now + 5000); assertEquals(5000, g.focus.get(0).millis);
-        g = GameCodec.decode(GameCodec.encode(g).toString(), now + 10000, zone); q = g.quests.get(0);
-        g.start(q, now + 10000); g.advance(now + 35000, zone);
-        assertEquals(20000, g.focus.get(0).millis); assertNull(g.session);
-        Statistics data = new Statistics(g, false, now + 35000, zone); assertEquals(20000, data.total);
+        g = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now + 10000, zone); q = g.quests.get(0);
+        g.start(q, now + 10000); g.advance(now + 165000, zone);
+        assertEquals(120000, g.focus.get(0).millis); assertNull(g.session);
+        Statistics data = new Statistics(g, false, now + 165000, zone); assertEquals(120000, data.total);
     }
     @Test public void midnightSplitsTimeAcrossTheDaysItWasActuallySpent() {
         Game g = new Game(now, zone); Game.Quest q = quest(g, "Focus"); g.energy = Game.DEAD;
         long midnight = Instant.parse("2026-10-31T00:00:00Z").toEpochMilli();
-        long previousDay = g.day; g.start(q, midnight - 5000); g.advance(midnight + 15000, zone);
+        long previousDay = g.day; g.start(q, midnight - 5000); g.advance(midnight + 115000, zone);
         assertEquals(2, g.focus.size()); assertEquals(previousDay, g.focus.get(0).day); assertEquals(5000, g.focus.get(0).millis);
-        assertEquals(previousDay + 1, g.focus.get(1).day); assertEquals(15000, g.focus.get(1).millis);
+        assertEquals(previousDay + 1, g.focus.get(1).day); assertEquals(115000, g.focus.get(1).millis);
     }
-    @Test public void heatmapsShareOneMaximumAndIgnoreDaysOutsideThePastYear() {
+    @Test public void heatmapsUseTheirOwnMaximumAndIgnoreDaysOutsideThePastYear() {
         Game g = new Game(now, zone); Game.Quest a = quest(g, "A"), b = quest(g, "B");
         completed(g, a, 20000); completed(g, b, 10000);
         g.focus.add(new Game.FocusEntry(a.id, a.name, g.day, 15000));
@@ -45,6 +45,11 @@ public class StatisticsTest {
         Statistics data = new Statistics(g, false, now, zone);
         assertEquals(35000, data.maximum); assertEquals(365, data.lastDay - data.firstDay + 1);
         assertEquals(Long.valueOf(35000), data.series.get(0).days.get(g.day));
+        Statistics.Series first=data.heatSeries.stream().filter(s->s.id.equals(a.id)).findFirst().get();
+        Statistics.Series second=data.heatSeries.stream().filter(s->s.id.equals(b.id)).findFirst().get();
+        assertEquals(35000,first.heatMaximum);assertEquals(10000,second.heatMaximum);
+        assertEquals(255,first.heatAlpha(35000));assertEquals(255,second.heatAlpha(10000));
+        assertEquals(127,first.heatAlpha(17500));assertEquals(24,second.heatAlpha(0));
     }
     @Test public void lawChartsUseReportCountsOnlyForActiveLaws() {
         Game g = new Game(now, zone); Game.Fine law = new Game.Fine(); law.name = "Law"; g.addLaw(law);
@@ -54,7 +59,7 @@ public class StatisticsTest {
     }
     @Test public void olderSavesDoNotInventUnrecordedQuestTime() throws Exception {
         Game g = new Game(now, zone); Game.Quest q = quest(g, "Old"); completed(g, q, 20000);
-        org.json.JSONObject saved = GameCodec.encode(g); saved.remove("focus"); saved.remove("analyticsSince"); saved.put("version", 11);
+        org.json.JSONObject saved = GameCodec.encodeLegacy(g); saved.remove("focus"); saved.remove("analyticsSince"); saved.put("version", 11);
         Game loaded = GameCodec.decode(saved.toString(), now, zone);
         assertEquals(now, loaded.analyticsSince); assertTrue(loaded.focus.isEmpty()); assertEquals(0, new Statistics(loaded, false, now, zone).total);
     }
@@ -74,5 +79,15 @@ public class StatisticsTest {
         Game g = new Game(now, zone); Game.Quest q = quest(g, "Gone"); Game.Fine a = new Game.Fine(), b = new Game.Fine(); g.addLaw(a); g.addLaw(b);
         BoardArrangement snapshot = new BoardArrangement(g); g.moveLaw(a.id, b.id); g.deleteQuest(q); snapshot.restore(g);
         assertEquals(a, g.fines.get(0)); assertEquals(b, g.fines.get(1)); assertTrue(g.quests.isEmpty()); assertFalse(g.boardOrder.contains(q.id));
+    }
+    @Test public void lawHeatmapsUseTheirOwnHighestDailyReportCount() {
+        Game g=new Game(now,zone);Game.Fine first=new Game.Fine(),second=new Game.Fine();g.addLaw(first);g.addLaw(second);
+        Game.HistoryEntry a=new Game.HistoryEntry(Game.FINE_HISTORY,first.id,first.name,now);a.count=8;g.history.add(a);
+        Game.HistoryEntry b=new Game.HistoryEntry(Game.FINE_HISTORY,second.id,second.name,now);b.count=2;g.history.add(b);
+        g.history.add(new Game.HistoryEntry(Game.FINE_HISTORY,second.id,second.name,now-86400000));
+        Statistics data=new Statistics(g,true,now,zone);
+        Statistics.Series one=data.heatSeries.stream().filter(s->s.id.equals(first.id)).findFirst().get(),two=data.heatSeries.stream().filter(s->s.id.equals(second.id)).findFirst().get();
+        assertEquals(8,one.heatMaximum);assertEquals(2,two.heatMaximum);
+        assertEquals(255,one.heatAlpha(8));assertEquals(255,two.heatAlpha(2));assertEquals(127,two.heatAlpha(1));assertEquals(24,two.heatAlpha(0));
     }
 }

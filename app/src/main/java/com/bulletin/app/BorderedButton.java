@@ -13,6 +13,7 @@ final class BorderedButton extends Button {
         super(context); border.setColor(color); border.setStyle(Paint.Style.STROKE); border.setStrokeWidth(2);
     }
     void setBorderColor(int color) { border.setColor(color); invalidate(); }
+    @Override public boolean performClick() { return super.performClick(); }
     @Override public void draw(Canvas canvas) {
         super.draw(canvas);
         canvas.drawRect(1, 1, getWidth() - 1, getHeight() - 1, border);

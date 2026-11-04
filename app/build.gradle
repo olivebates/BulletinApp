@@ -7,8 +7,8 @@ android {
         applicationId 'com.bulletin.app'
         minSdk 26
         targetSdk 36
-        versionCode 38
-        versionName '1.37'
+        versionCode 74
+        versionName '1.73'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
     compileOptions {

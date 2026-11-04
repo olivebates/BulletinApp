@@ -71,7 +71,7 @@ public class BoardTest {
         Game g = new Game(now, zone); Game.Quest a = add(g, false, false), b = add(g, true, false);
         a.hue = 283; a.emoji = "🎨"; Game.Fine law = new Game.Fine(); law.emoji = "🚫"; g.fines.add(law);
         g.moveQuest(a.id, b.id); g.randomMode = true; g.refreshRandomQuests(new Random(1));
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone);
         assertEquals(a.id, loaded.quests.get(0).id); assertEquals(283, loaded.quests.get(0).hue);
         assertEquals("🎨", loaded.quests.get(0).emoji); assertEquals("🚫", loaded.fines.get(0).emoji);
         assertEquals(g.randomQuestIds, loaded.randomQuestIds); assertTrue(loaded.boardQuests().get(0).required);

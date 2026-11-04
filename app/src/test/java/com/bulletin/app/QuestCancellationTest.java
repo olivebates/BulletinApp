@@ -33,10 +33,10 @@ public class QuestCancellationTest {
     @Test public void offlineMidnightDiscardsEveryPausedTimerAndCapturedRewardWithoutReward() throws Exception {
         Game g = new Game(now, zone); Game.Quest q = quest(g); g.start(q, now); g.pauseQuest(now + 60000);
         g.energy = Game.DEAD;
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 60000, zone); Game.Quest paused = loaded.quests.get(0);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now + 60000, zone); Game.Quest paused = loaded.quests.get(0);
         loaded.advance(midnight, zone); assertReset(paused); assertFalse(loaded.isPaused(paused)); assertNull(loaded.session);
         assertEquals(-100, loaded.coins); assertEquals(0, loaded.pendingCoins); assertEquals(0, loaded.completedToday); assertTrue(loaded.history.isEmpty());
-        assertTrue(loaded.start(paused, midnight)); assertEquals(midnight + 20000, loaded.session.endsAt); assertEquals(10000, loaded.session.restMillis);
+        assertTrue(loaded.start(paused, midnight)); assertEquals(midnight + 120000, loaded.session.endsAt); assertEquals(40000, loaded.session.restMillis);
     }
     @Test public void cancelTimedSingleKeepsItAvailableAndDoesNotPutItInCompletedTrash() {
         Game g = new Game(now, zone); Game.Quest q = quest(g); q.repeatable = false; q.timed = true;

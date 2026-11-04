@@ -1,0 +1,10 @@
+package com.bulletin.app;
+import org.junit.Test;
+import java.time.*;
+import static org.junit.Assert.*;
+public class TimelineRangeTest{
+ private final ZoneId zone=ZoneId.of("UTC");private final long now=Instant.parse("2026-10-31T12:00:00Z").toEpochMilli();
+ @Test public void allHistoryIsAvailableAndQuestAndLawRangesAreIndependent()throws Exception{Game g=new Game(now,zone);long old=now-5*365*86400000L;g.history.add(new Game.HistoryEntry(Game.QUEST_HISTORY,"q","Task",old));TimelineRange.Window w=TimelineRange.window(g,Game.QUEST_HISTORY,now,zone);assertTrue(w.minimum<=old);assertTrue(w.start<=old);g.questTimelineStart=now-100000;g.questTimelineEnd=now-50000;w=TimelineRange.window(g,Game.QUEST_HISTORY,now,zone);assertEquals(g.questTimelineStart,w.start);assertEquals(g.questTimelineEnd,w.end);TimelineRange.Window law=TimelineRange.window(g,Game.FINE_HISTORY,now,zone);assertEquals(now,law.end);Game loaded=GameCodec.decode(GameCodec.encode(g).toString(),now,zone);assertEquals(g.questTimelineStart,loaded.questTimelineStart);assertEquals(g.questTimelineEnd,loaded.questTimelineEnd);}
+ @Test public void dailyAndWeeklyTotalsOverlapOnlyTheirSummaryPeriods(){Game.HistoryEntry e=new Game.HistoryEntry(Game.QUEST_HISTORY,"q","Task",now-400*86400000L);long day=Game.localDay(e.at,zone);e.bucketDay=HistoryAggregation.week(day);e.endDay=e.bucketDay+6;e.precision=7;long first=HistoryAggregation.millis(e.bucketDay,zone),last=HistoryAggregation.millis(e.endDay+1,zone)-1;assertTrue(TimelineRange.overlaps(e,first+86400000,last-86400000,zone));assertFalse(TimelineRange.overlaps(e,first-1000,first-1,zone));assertFalse(TimelineRange.overlaps(e,last+1,last+1000,zone));}
+ @Test public void invalidSavedBoundsClampToAvailableData(){Game g=new Game(now,zone);g.questTimelineStart=now+10000;g.questTimelineEnd=now-10000;TimelineRange.Window w=TimelineRange.window(g,Game.QUEST_HISTORY,now,zone);assertTrue(w.start<w.end);assertTrue(w.start>=w.minimum);assertTrue(w.end<=w.maximum);}
+}

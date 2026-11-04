@@ -11,6 +11,26 @@ import java.util.Map;
 
 /** Pure Java rules. All events are processed chronologically, including offline midnights. */
 public final class Game {
+    public static final class ChoiceList {
+        public String id = UUID.randomUUID().toString(), name = "";
+        public final List<String> items = new ArrayList<>();
+    }
+    public final List<ChoiceList> choiceLists = new ArrayList<>();
+    public final List<ChoiceList> briefLists = new ArrayList<>();
+    public boolean questAdvancedExpanded, hasCreatedCategory, energyHintShown, questStartHintShown, welcomeShown, questCreationHintShown, timelineHintShown, choiceHintShown, rearrangeVisited, rearrangeExitHintShown;
+    public boolean briefShowTitles = true;
+    public void addBriefList(ChoiceList list) { if (isUuid(list.id)) list.id = shortId("b"); briefLists.add(list); }
+    public void addChoiceList(ChoiceList list) { if (isUuid(list.id)) list.id = shortId("r"); choiceLists.add(list); }
+    void addDemoLists() {
+        ChoiceList exercises = new ChoiceList(); exercises.name = "Exercises (Demo)";
+        java.util.Collections.addAll(exercises.items, "Push-ups", "Squats", "Lunges", "Plank", "Jumping Jacks", "Glute Bridges", "Mountain Climbers"); addChoiceList(exercises);
+        ChoiceList recipes = new ChoiceList(); recipes.name = "Recipes (Demo)";
+        java.util.Collections.addAll(recipes.items, "Vegetable Stir-fry", "Lentil Soup", "Tomato Pasta", "Chickpea Curry", "Mushroom Risotto"); addChoiceList(recipes);
+        ChoiceList landscapes = new ChoiceList(); landscapes.name = "Landscapes (Demo)";
+        java.util.Collections.addAll(landscapes.items, "Location", "Time Period", "Architecture"); addBriefList(landscapes);
+        ChoiceList people = new ChoiceList(); people.name = "People (Demo)";
+        java.util.Collections.addAll(people.items, "Body Type", "Age", "Clothes Style", "Personality"); addBriefList(people);
+    }
     public static final long LIMIT = 9_000_000_000_000_000L;
     public static final int QUEST = 1, REST = 2;
     public static final int EXTRA = 0, NORMAL = 1, MINIMAL = 2, DEAD = 3, EXTREME = 4, RELAX = 5;
@@ -33,6 +53,8 @@ public final class Game {
         public int pausedRewardMinutes = -1, pausedReferenceMinutes = -1;
         public long pausedRewardMillis = -1, pausedReferenceMillis = -1;
         public long pausedRestMillis = -1;
+        public long pausedActiveMillis;
+        public int pausedEnergy = -1;
         public long firstDay;
         public long bountySince = -1;
         public long completedDay = Long.MIN_VALUE;
@@ -131,7 +153,7 @@ public final class Game {
         int needed = categoryNeeded(c, onDay);
         if (c.mustDo && needed > 0 && categoryRemaining(c, onDay) == 0) { c.fulfilledDay = onDay; c.fulfilledTarget = needed; }
     }
-    public void addCategory(Category c) { categories.add(c); boardOrder.add(0, c.id); }
+    public void addCategory(Category c) { hasCreatedCategory = true; if(isUuid(c.id))c.id=shortId("c"); categories.add(c); boardOrder.add(0, c.id); }
     public float questHue(Quest q) {
         Category c = q == null ? null : category(q.categoryId);
         if (c != null && c.hue >= 0) return c.hue;
@@ -180,12 +202,13 @@ public final class Game {
     public static final class Session {
         public String questId, questName;
         public long occurrenceDay, endsAt;
-        public long accountedAt;
+        public long accountedAt, activeMillis;
         public boolean timed = true, required;
         public int rewardMinutes, referenceMinutes;
         public long rewardMillis = -1, referenceMillis = -1;
         public long bountySince = -1;
         public int restMinutes, phase = QUEST;
+        public int energy = -1;
         public long restMillis = -1;
     }
 
@@ -217,26 +240,43 @@ public final class Game {
     public static final class HistoryEntry {
         public String kind, id, name;
         public long at;
-        public int count = 1;
+        public long count = 1, coinsDelta;
+        public boolean coinsKnown;
+        public long bountyMillis;
+        public int energy = -1;
+        public int precision;
+        public long bucketDay = Long.MIN_VALUE, endDay = Long.MIN_VALUE;
         public boolean dateOnly;
         public HistoryEntry(String kind, String id, String name, long at) { this.kind = kind; this.id = id; this.name = name; this.at = at; }
     }
     public static final class BalancePoint {
         public final long at, cents;
         public final String cause;
+        public final long periodStart, periodEnd, opening, minimum, maximum;
+        public final int precision;
         public BalancePoint(long at, long cents) { this(at, cents, "Balance update"); }
-        public BalancePoint(long at, long cents, String cause) { this.at = at; this.cents = cents; this.cause = cause; }
+        public BalancePoint(long at, long cents, String cause) { this(at,cents,cause,0,0,cents,cents,cents); }
+        public BalancePoint(long at,long cents,String cause,long start,long end,long opening,long minimum,long maximum) {
+            this(at,cents,cause,start,end,opening,minimum,maximum,start==0?0:end-start>2*86400000L?7:1);
+        }
+        public BalancePoint(long at,long cents,String cause,long start,long end,long opening,long minimum,long maximum,int precision) {
+            this.precision=precision;this.at=at;this.cents=cents;this.periodStart=start;this.periodEnd=end;this.opening=opening;this.minimum=minimum;this.maximum=maximum;
+            this.cause=start==0?cause:(precision==7?"Weekly":"Daily")+" summary: open "+Money.format(opening)+", low "+Money.format(minimum)+", high "+Money.format(maximum)+", close "+Money.format(cents);
+        }
     }
     public final List<HistoryEntry> history = new ArrayList<>();
     public static final class FocusEntry {
         public String id, name;
-        public long day, millis;
-        public FocusEntry(String id, String name, long day, long millis) { this.id = id; this.name = name; this.day = day; this.millis = millis; }
+        public long day, millis, endDay;
+        public FocusEntry(String id, String name, long day, long millis) { this.id = id; this.name = name; this.day = day; this.endDay = day; this.millis = millis; }
     }
     public final List<FocusEntry> focus = new ArrayList<>();
     public long analyticsSince;
     public final List<BalancePoint> balances = new ArrayList<>();
     public long balanceRangeStart, balanceRangeEnd;
+    public long questTimelineStart, questTimelineEnd, lawTimelineStart, lawTimelineEnd;
+    public long nextEntityId = 1;
+    long aggregationDay=Long.MIN_VALUE;
     public static final class UndoEntry {
         public String questId;
         public String categoryId = "";
@@ -254,6 +294,7 @@ public final class Game {
     /** A durable celebration waits until the bulletin board is visible. */
     public int pendingConfetti;
     public boolean randomMode;
+    public long randomModeUsedMillis;
     public long randomDay = Long.MIN_VALUE;
     public final List<String> randomQuestIds = new ArrayList<>();
     /** New categories are selected by default; an empty category ID means uncategorized. */
@@ -281,6 +322,26 @@ public final class Game {
         return Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toEpochDay();
     }
     public static long add(long a, long b) { return Math.min(LIMIT, a + b); }
+    /** Only completed optional focus time advances the base; legacy raises remain earned. */
+    private void rebuildBounty() {
+        nextBounty = bountyBase; long remainder = 0;
+        for (HistoryEntry change : bountyChanges) {
+            if (change.kind.equals("reset")) { nextBounty = 100; remainder = 0; }
+            else if (change.kind.equals("raise")) nextBounty = raiseBounty(nextBounty);
+            else if (change.kind.equals("time")) {
+                long total = add(remainder, change.bountyMillis); remainder = total % NORMAL_DURATION;
+                for (long increases = total / NORMAL_DURATION; increases > 0 && nextBounty < LIMIT; increases--) nextBounty = raiseBounty(nextBounty);
+            }
+        }
+    }
+    public long bountyProgressMillis() {
+        long remainder = 0;
+        for (HistoryEntry change : bountyChanges) {
+            if (change.kind.equals("reset")) remainder = 0;
+            else if (change.kind.equals("time")) remainder = add(remainder, change.bountyMillis) % NORMAL_DURATION;
+        }
+        return remainder;
+    }
     public static long raiseBounty(long amount) { return add(amount, (amount + 9) / 10); }
     public static long dailyInterest(long balance) { return balance <= 0 ? 0 : (balance + 2499) / 2500; }
     public int minutesFor(Quest q) { return q.repeatable || q.timed ? (int) (energyDurationMillis() / 60_000) : 0; }
@@ -290,7 +351,7 @@ public final class Game {
             case EXTRA: return 45 * 60_000L;
             case RELAX: return 15 * 60_000L;
             case MINIMAL: return 7 * 60_000L;
-            case DEAD: return 20_000;
+            case DEAD: return 120_000;
             default: return NORMAL_DURATION;
         }
     }
@@ -300,7 +361,7 @@ public final class Game {
             case EXTRA: return 10 * 60_000L;
             case RELAX: return 4 * 60_000L;
             case MINIMAL: return 2 * 60_000L;
-            case DEAD: return 10_000;
+            case DEAD: return 40_000;
             default: return 5 * 60_000L;
         }
     }
@@ -337,7 +398,7 @@ public final class Game {
     public static long agedBounty(long baseline, long since, long now) {
         if (since < 0 || now <= since) return baseline;
         long hours = (now - since) / 3_600_000L;
-        double multiplier = hours >= 488 ? 7 : Math.min(7, Math.pow(1.004, hours));
+        double multiplier = Math.min(7, Math.pow(1.012, hours));
         return Math.min(LIMIT, (long) Math.ceil(Math.min((double) LIMIT, baseline * multiplier)));
     }
     public long previewBounty() { return proportionalBounty(nextBounty, false, energyDurationMillis(), NORMAL_DURATION); }
@@ -358,7 +419,7 @@ public final class Game {
         if (!balances.isEmpty()) at = Math.max(at, balances.get(balances.size() - 1).at);
         balances.add(new BalancePoint(at, coins, cause));
     }
-    public long timelineStart(long today) { return Math.max(firstOpenedDay, LocalDate.ofEpochDay(today).minusMonths(3).toEpochDay()); }
+    public long timelineStart(long today) { return Math.min(firstOpenedDay,today); }
     public Map<String, String> timelineEntities(String kind) {
         Map<String, String> result = new LinkedHashMap<>();
         if (kind.equals(QUEST_HISTORY)) for (Quest q : quests) result.put(q.id, q.name);
@@ -375,6 +436,7 @@ public final class Game {
             long end = Math.min(until, session.endsAt);
             long elapsed = Math.max(0, end - session.accountedAt);
             timedMillisToday += elapsed;
+            session.activeMillis = add(session.activeMillis, elapsed);
             if (elapsed > 0) {
                 FocusEntry entry = null;
                 for (int i = focus.size() - 1; i >= 0; i--) { FocusEntry candidate = focus.get(i); if (candidate.day == day && candidate.id.equals(session.questId)) { entry = candidate; break; } }
@@ -408,7 +470,7 @@ public final class Game {
     public void incurFine(Fine fine, long now) {
         if (!fines.contains(fine)) return;
         if (fine.mode == AMOUNT) fine.amountUsed = Math.min(Integer.MAX_VALUE - 1, fine.amountUsed + 1);
-        incurFine(); history.add(new HistoryEntry(FINE_HISTORY, fine.id, fine.name, now)); recordBalance(now, "Law broken: " + fine.name);
+        long before=coins; incurFine(); HistoryEntry event=new HistoryEntry(FINE_HISTORY,fine.id,fine.name,now);event.coinsDelta=coins-before;event.coinsKnown=true;history.add(event);recordBalance(now,"Law broken: "+fine.name);
     }
     private void apply(Penalty p) {
         days = Math.max(0, days - p.days);
@@ -424,6 +486,8 @@ public final class Game {
         session = new Session();
         session.questId = q.id;
         session.questName = q.name;
+        session.activeMillis = q.remainingMillis > 0 ? q.pausedActiveMillis : 0;
+        session.energy = q.remainingMillis > 0 ? q.pausedEnergy : energy;
         session.occurrenceDay = day;
         session.required = isRequired(q);
         session.bountySince = q.bountySince;
@@ -527,6 +591,8 @@ public final class Game {
             q.pausedRewardMinutes = session.rewardMinutes; q.pausedReferenceMinutes = session.referenceMinutes;
             q.pausedRewardMillis = session.rewardMillis; q.pausedReferenceMillis = session.referenceMillis;
             q.pausedRestMillis = restFor(session);
+            q.pausedEnergy = session.energy;
+            q.pausedActiveMillis = session.activeMillis;
             break;
         }
         session = null; return true;
@@ -537,7 +603,7 @@ public final class Game {
     }
     private void resetQuestTimer(Quest q) {
         q.remainingMillis = -1; q.pausedRewardMinutes = -1; q.pausedReferenceMinutes = -1;
-        q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1; q.pausedRestMillis = -1;
+        q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1; q.pausedRestMillis = -1; q.pausedEnergy = -1; q.pausedActiveMillis = 0;
     }
     public boolean cancelQuest(Quest q, long now) {
         if (!quests.contains(q)) return false;
@@ -557,7 +623,7 @@ public final class Game {
                 q.bountySince = at;
                 q.remainingMillis = -1; q.pausedRewardMinutes = -1; q.pausedReferenceMinutes = -1;
                 q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1;
-                q.pausedRestMillis = -1;
+                q.pausedRestMillis = -1; q.pausedEnergy = -1; q.pausedActiveMillis = 0;
                 break;
             }
         }
@@ -565,16 +631,17 @@ public final class Game {
         if (completed != null) creditCategory(completed, session.occurrenceDay);
         long bounty = activeBounty(at);
         long earned = Math.min(bounty, LIMIT - coins);
+        HistoryEntry recorded=history.get(history.size()-1);recorded.coinsDelta=earned;recorded.coinsKnown=true;recorded.energy=session.energy;
         long oldVisible = coins - pendingCoins;
         coins += earned;
         recordBalance(at, "Quest completed: " + session.questName);
         pendingCoins = Math.max(0, coins - Math.max(0, oldVisible));
         completedToday++;
         long bountyBefore = nextBounty;
-        if (!session.required) {
+        if (!session.required && session.timed && session.activeMillis > 0) {
             if (bountyChanges.isEmpty()) bountyBase = nextBounty;
-            bountyChanges.add(new HistoryEntry("raise", session.questId, session.questName, at));
-            nextBounty = raiseBounty(nextBounty);
+            HistoryEntry credit = new HistoryEntry("time", session.questId, session.questName, at);
+            credit.bountyMillis = session.activeMillis; bountyChanges.add(credit); rebuildBounty();
         }
         if (completed != null && completed.repeatable) pendingConfetti = Math.max(pendingConfetti, 1);
         if (session.required && requiredWasOutstanding && requiredPenalty().days == 0)
@@ -674,7 +741,7 @@ public final class Game {
         if (!q.forever && q.firstDay < day) q.firstDay = day;
         q.completedDay = Long.MIN_VALUE; q.completions = 0; q.bountySince = now;
         q.remainingMillis = -1; q.pausedRewardMinutes = -1; q.pausedReferenceMinutes = -1;
-        q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1; q.pausedRestMillis = -1;
+        q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1; q.pausedRestMillis = -1; q.pausedEnergy = -1; q.pausedActiveMillis = 0;
         quests.add(q.required ? 0 : quests.size(), q); if (q.categoryId.isEmpty()) boardOrder.add(q.id);
         if (randomMode) refreshRandomQuests(new java.util.Random()); return true;
     }
@@ -698,8 +765,18 @@ public final class Game {
         }
         return true;
     }
-    public void addQuest(Quest quest) { quests.add(quest.required ? 0 : quests.size(), quest); boardOrder.add(quest.id); questsCreated++; }
-    public void addLaw(Fine law) { fines.add(law); lawsCreated++; }
+    public void addQuest(Quest quest) { if(isUuid(quest.id))quest.id=shortId("q"); quests.add(quest.required ? 0 : quests.size(), quest); boardOrder.add(quest.id); questsCreated++; }
+    public void addLaw(Fine law) { if(isUuid(law.id))law.id=shortId("l"); fines.add(law); lawsCreated++; }
+    private static boolean isUuid(String id){return id!=null&&id.matches("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");}
+    private String shortId(String prefix){
+        java.util.Set<String> used=new java.util.HashSet<>();
+        for(Quest q:quests){used.add(q.id);used.add(q.categoryId);}for(Quest q:deletedQuests){used.add(q.id);used.add(q.categoryId);}for(Fine l:fines)used.add(l.id);for(Category c:categories)used.add(c.id);
+        for(ChoiceList list:choiceLists)used.add(list.id);for(ChoiceList list:briefLists)used.add(list.id);
+        for(HistoryEntry e:history)used.add(e.id);for(FocusEntry e:focus)used.add(e.id);for(HistoryEntry e:bountyChanges)used.add(e.id);
+        for(String key:collapsedAnalyticsSections)used.add(key.substring(key.lastIndexOf(":")+1));
+        for(MissedReview review:missedReviews)for(String key:review.ids)used.add(key.startsWith("category:")?key.substring(9):key);
+        String id;do{id=prefix+Long.toString(nextEntityId++,36);}while(used.contains(id));return id;
+    }
     public boolean questControlsUnlocked() { return questsCreated >= 3; }
     public boolean lawControlsUnlocked() { return lawsCreated >= 1; }
     public boolean questRearrangeUnlocked() { return questsCreated >= 2; }
@@ -756,9 +833,8 @@ public final class Game {
         history.removeIf(e -> e.kind.equals(QUEST_HISTORY) && e.id.equals(id) && e.at == completedAt);
         coins = Math.max(-LIMIT, coins - entry.reward);
         pendingCoins = Math.min(pendingCoins, Math.max(0, coins));
-        if (bountyChanges.removeIf(e -> e.kind.equals("raise") && e.id.equals(id) && e.at == completedAt)) {
-            nextBounty = bountyBase;
-            for (HistoryEntry change : bountyChanges) nextBounty = change.kind.equals("reset") ? 100 : raiseBounty(nextBounty);
+        if (bountyChanges.removeIf(e -> (e.kind.equals("raise") || e.kind.equals("time")) && e.id.equals(id) && e.at == completedAt)) {
+            rebuildBounty();
         } else if (nextBounty == entry.bountyAfter) nextBounty = entry.bountyBefore;
         completedToday = Math.max(0, completedToday - 1); recordBalance(now, "Restored quest: " + quest.name); return true;
     }

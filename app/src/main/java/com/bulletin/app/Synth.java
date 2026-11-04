@@ -28,7 +28,7 @@ public final class Synth {
 
     public Synth(Context context) {
         pool = new SoundPool.Builder().setMaxStreams(8).setAudioAttributes(new AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
+            .setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
         pool.setOnLoadCompleteListener((p, id, status) -> {
             if (status == 0) {
                 loaded.add(id);
@@ -39,7 +39,7 @@ public final class Synth {
         });
         try (android.content.res.AssetFileDescriptor asset = context.getAssets().openFd("alarmsfx.ogg")) {
             alarm = new android.media.MediaPlayer();
-            alarm.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+            alarm.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
             alarm.setDataSource(asset.getFileDescriptor(), asset.getStartOffset(), asset.getLength()); alarm.prepare();
             alarm.setVolume(.75f, .75f); warningDurationMillis = Math.max(1, alarm.getDuration());
             alarm.setOnCompletionListener(player -> warningUntil = 0);

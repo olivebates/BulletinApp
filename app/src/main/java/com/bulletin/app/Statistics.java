@@ -16,9 +16,10 @@ final class Statistics {
         final String id;
         String name;
         int hue;
-        long value;
+        long value, heatMaximum;
         final Map<Long, Long> days = new LinkedHashMap<>();
         Series(String id, String name, int hue) { this.id = id; this.name = name; this.hue = hue; }
+        int heatAlpha(long value) { return value <= 0 ? 24 : Math.max(35, (int) Math.min(255, 255d * value / Math.max(1, heatMaximum))); }
         void add(long day, long amount) { value = Game.add(value, amount); days.put(day, Game.add(days.getOrDefault(day, 0L), amount)); }
     }
     final List<Series> series = new ArrayList<>(), slices = new ArrayList<>(), heatSeries = new ArrayList<>();
@@ -32,7 +33,7 @@ final class Statistics {
             case 1: return day - 6;
             case 2: return today.minusMonths(1).plusDays(1).toEpochDay();
             case 3: return today.minusMonths(3).plusDays(1).toEpochDay();
-            default: return today.minusYears(1).plusDays(1).toEpochDay();
+            default: return Long.MIN_VALUE;
         }
     }
     Statistics(Game game, boolean laws, long now, ZoneId zone) {
@@ -63,7 +64,8 @@ final class Statistics {
         for (Series s : series) {
             if (active.contains(s.id)) {
                 heatSeries.add(s);
-                for (Map.Entry<Long, Long> entry : s.days.entrySet()) if (entry.getKey() >= firstDay && entry.getKey() <= lastDay) maximum = Math.max(maximum, entry.getValue());
+                for (Map.Entry<Long, Long> entry : s.days.entrySet()) if (entry.getKey() >= firstDay && entry.getKey() <= lastDay) s.heatMaximum = Math.max(s.heatMaximum, entry.getValue());
+                maximum = Math.max(maximum, s.heatMaximum);
             }
             if (active.contains(s.id) && completed.contains(s.id) && s.value > 0) total = Game.add(total, s.value);
         }

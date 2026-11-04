@@ -45,10 +45,33 @@ public final class MainActivity extends Activity {
     private Game game;
     private Ui ui;
     private int tab;
+    private long navigationRevealAt;
+    private long randomUsageAt;
+    private boolean trackingRandomUsage, firstRearrangeSession;
+    private boolean energyHintPending;
+    private int toolsPage, toolsTool;
+    private CreativeBriefView briefEditor;
+    private BriefDictionary briefDictionary;
+    private final java.util.Map<String,CreativeBrief> briefSessions = new java.util.HashMap<>();
+    private Bundle briefSessionStates = new Bundle();
+    private boolean[] briefPickerExpanded = {true, false};
+    private ChoiceRandomizerView choiceEditor;
+    private ScrollView toolsScroll;
+    private final int[] toolsScrollPositions = new int[3];
+    private int toolsScrollPage;
+    private boolean toolsScrollRestoring;
+    private Bundle choiceEditorStates = new Bundle();
+    private Bundle choiceSessionStates = new Bundle();
+    private String choiceListId = "";
+    private final boolean[] toolNamesArrange = new boolean[2];
+    private ToolListReorder toolListDrag;
+    private final java.util.Map<String,ChoiceRandomizer> choiceRandomizers = new java.util.HashMap<>();
+    private final Runnable saveChoices = () -> { store.save(); renderedRevision = store.revision; };
     private boolean questTimelines, fineTimelines;
     private boolean questRearrange, lawRearrange;
     private int questAnalyticsTab, lawAnalyticsTab;
     private int questPieRange = 4, lawPieRange = 4;
+    private int questTimelinePreset = -1, lawTimelinePreset = -1;
     private boolean moreOptionsExpanded;
     private BoardArrangement dragArrangement;
     private final android.graphics.RectF originalDragSlot = new android.graphics.RectF();
@@ -59,6 +82,7 @@ public final class MainActivity extends Activity {
     private View coinTarget;
     private CoinFlight flight;
     private BalanceGraph balanceGraph;
+    private final List<TimelineView> timelineViews=new ArrayList<>();
     private final java.util.Map<String, TextView> remainingLabels = new java.util.HashMap<>();
     private final java.util.Map<String, TextView> bountyLabels = new java.util.HashMap<>();
     private final java.util.Map<String, TextView> lawTimers = new java.util.HashMap<>();
@@ -69,6 +93,7 @@ public final class MainActivity extends Activity {
     private boolean resumed, animating;
     private Dialog dialog;
     private Dialog emojiMenu;
+    private Dialog briefPicker;
     private android.widget.PopupWindow pasteNotice;
     private EmojiCatalog emojiCatalog;
     private TextView receipt;
@@ -103,9 +128,10 @@ public final class MainActivity extends Activity {
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (!resumed) return;
+            accountRandomUsage();
             store.sync();
             if (completingCard || boardDragId != null) { ticker.postDelayed(this, 250); return; }
-            if (renderedRevision != store.revision && tab != 2) render();
+            if (renderedRevision != store.revision && tab != 2 && tab != 3) render();
             if (tab == 2 && balanceGraph != null && renderedRevision != store.revision) {
                 balanceGraph.invalidate(); renderedRevision = store.revision;
             }
@@ -133,6 +159,14 @@ public final class MainActivity extends Activity {
         game = store.game;
         if (savedInstanceState != null) {
             tab = savedInstanceState.getInt("tab", 0);
+            toolsTool = Math.max(0, Math.min(1, savedInstanceState.getInt("toolsTool")));
+            boolean[] arrange = savedInstanceState.getBooleanArray("toolNamesArrange"); if (arrange != null && arrange.length == 2) { toolNamesArrange[0] = arrange[0]; toolNamesArrange[1] = arrange[1]; }
+            Bundle briefs = savedInstanceState.getBundle("briefSessionStates"); if (briefs != null) briefSessionStates = briefs;
+            boolean[] groups = savedInstanceState.getBooleanArray("briefPickerExpanded"); if (groups != null && groups.length == 2) briefPickerExpanded = groups; else if (groups != null && groups.length == 3) briefPickerExpanded = new boolean[]{groups[0] || groups[1], groups[2]};
+            Bundle sessions = savedInstanceState.getBundle("choiceSessionStates"); if (sessions != null) choiceSessionStates = sessions;
+            Bundle editors = savedInstanceState.getBundle("choiceEditorStates"); if (editors != null) choiceEditorStates = editors;
+            int[] positions = savedInstanceState.getIntArray("toolsScrollPositions"); if (positions != null) for (int i = 0; i < Math.min(positions.length, toolsScrollPositions.length); i++) toolsScrollPositions[i] = Math.max(0, positions[i]);
+            toolsPage = savedInstanceState.getInt("toolsPage"); choiceListId = savedInstanceState.getString("choiceListId", "");
             questTimelines = savedInstanceState.getBoolean("questTimelines"); fineTimelines = savedInstanceState.getBoolean("fineTimelines");
             questRearrange = savedInstanceState.getBoolean("questRearrange"); lawRearrange = savedInstanceState.getBoolean("lawRearrange");
             questAnalyticsTab = savedInstanceState.getInt("questAnalyticsTab"); lawAnalyticsTab = savedInstanceState.getInt("lawAnalyticsTab");
@@ -140,11 +174,18 @@ public final class MainActivity extends Activity {
             moreOptionsExpanded = savedInstanceState.getBoolean("moreOptionsExpanded");
 
         }
+        if (getIntent().hasExtra("navigateTab")) { tab = Math.max(0, Math.min(3, getIntent().getIntExtra("navigateTab", 0))); if (tab == 3 && getIntent().getBooleanExtra("toolsHome", false)) toolsPage = 0; getIntent().removeExtra("navigateTab"); getIntent().removeExtra("toolsHome"); }
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         store.sync();
         render();
     }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);setIntent(intent);
+        if(intent.hasExtra("navigateTab")){tab=Math.max(0,Math.min(3,intent.getIntExtra("navigateTab",0)));questTimelines=false;fineTimelines=false;if(tab==3&&intent.getBooleanExtra("toolsHome",false))toolsPage=0;intent.removeExtra("navigateTab");intent.removeExtra("toolsHome");store.sync();render();}
+    }
     private boolean navigateBack() {
+        if (tab == 3 && toolsPage == 1 && toolNamesArrange[toolsTool]) { toolNamesArrange[toolsTool] = false; render(); return true; }
+        if (tab == 3 && toolsPage > 0) { toolsPage--; render(); return true; }
         if (rearranging()) {
             questRearrange = false; lawRearrange = false; render(); return true;
         }
@@ -162,11 +203,21 @@ public final class MainActivity extends Activity {
         if (!navigateBack()) super.onBackPressed();
     }
     @Override protected void onSaveInstanceState(Bundle out) {
+        out.putBooleanArray("toolNamesArrange", toolNamesArrange.clone());
+        if (briefEditor != null) briefEditor.captureState();
+        for (java.util.Map.Entry<String,CreativeBrief> entry : briefSessions.entrySet()) briefSessionStates.putStringArray(entry.getKey(), entry.getValue().snapshot());
+        out.putBundle("briefSessionStates", briefSessionStates); out.putInt("toolsTool", toolsTool); out.putBooleanArray("briefPickerExpanded", briefPickerExpanded);
+        captureToolsScroll(); out.putIntArray("toolsScrollPositions", toolsScrollPositions.clone());
+        if (choiceEditor != null) choiceEditor.captureState();
+        for (java.util.Map.Entry<String,ChoiceRandomizer> entry : choiceRandomizers.entrySet()) choiceEditorStates.putIntArray(entry.getKey(), entry.getValue().editor.snapshot());
+        for (java.util.Map.Entry<String,ChoiceRandomizer> entry : choiceRandomizers.entrySet()) choiceSessionStates.putLongArray(entry.getKey(), entry.getValue().snapshot());
+        out.putBundle("choiceSessionStates", choiceSessionStates);
+        out.putBundle("choiceEditorStates", choiceEditorStates);
         out.putBoolean("questRearrange", questRearrange); out.putBoolean("lawRearrange", lawRearrange);
         out.putInt("questAnalyticsTab", questAnalyticsTab); out.putInt("lawAnalyticsTab", lawAnalyticsTab);
         out.putInt("questPieRange", questPieRange); out.putInt("lawPieRange", lawPieRange);
         out.putBoolean("moreOptionsExpanded", moreOptionsExpanded);
-        out.putInt("tab", tab); out.putBoolean("questTimelines", questTimelines); out.putBoolean("fineTimelines", fineTimelines); super.onSaveInstanceState(out);
+        out.putInt("toolsPage", toolsPage); out.putString("choiceListId", choiceListId); out.putInt("tab", tab); out.putBoolean("questTimelines", questTimelines); out.putBoolean("fineTimelines", fineTimelines); super.onSaveInstanceState(out);
     }
     @Override protected void onStart() { super.onStart(); store.appOpened(); }
     @Override protected void onStop() { store.appClosed(); super.onStop(); }
@@ -174,17 +225,25 @@ public final class MainActivity extends Activity {
         super.onResume(); resumed = true;
         store.lawWarningListener = () -> {
             if (!resumed) return;
-            if (renderedRevision != store.revision && boardDragId == null && !completingCard && tab != 2) render();
+            if (renderedRevision != store.revision && boardDragId == null && !completingCard && tab != 2 && tab != 3) render();
             frame.post(this::startLawImpacts);
         };
         store.sync(); render(); ensureTimer();
+        if (!game.welcomeShown) {
+            game.welcomeShown = true; store.save(); renderedRevision = store.revision;
+            showInformation("Welcome!\n\nThis app is designed to make good habits more rewarding and bad habits easier to resist.\n\nCreate quests for activities you want to do more often, and set laws to discourage habits you want to quit. Choose an activity, focus on it, and earn a bounty. Or you can let the app pick two options when you’re unsure what to do next.\n\nTrack where your time goes, see your progress, and make each day a little more intentional.");
+        }
         ticker.removeCallbacks(tick); ticker.post(tick);
     }
     @Override protected void onPause() {
+        if (toolListDrag != null) toolListDrag.cancel();
+        captureToolsScroll();
+        if (briefEditor != null) briefEditor.freezeState();
+        if (choiceEditor != null) choiceEditor.freezeState();
         stopBoardDragScroll();
         store.lawWarningListener = null; cancelLawImpacts();
         if (pasteNotice != null) pasteNotice.dismiss();
-        resumed = false;
+        resumed = false; accountRandomUsage();
         if (deathPlaying) { deathPlaying = false; deathReviewShown = null; }
         if (boardDragId != null) { if (dragArrangement != null) dragArrangement.restore(game); boardDragId = null; draggingCategory = false; boardMovePending = false; store.save(); }
         completingCard = false;
@@ -203,7 +262,7 @@ public final class MainActivity extends Activity {
     }
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration); render();
-        if (dialog != null && dialog.isShowing()) { if (dialog == emojiMenu) fitEmojiMenu(dialog); else fitDialog(dialog); }
+        if (dialog != null && dialog.isShowing()) { if (dialog == emojiMenu) fitEmojiMenu(dialog); else if (dialog == briefPicker) fitBriefPicker(dialog); else fitDialog(dialog); }
     }
     private void ensureTimer() {
         if (game.hasRunningTimers()) startForegroundService(new Intent(this, TimerService.class));
@@ -224,20 +283,33 @@ public final class MainActivity extends Activity {
     }
     private boolean landscape() { return getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE; }
 
+    private void accountRandomUsage() {
+        long now = android.os.SystemClock.uptimeMillis();
+        long before = game.randomModeUsedMillis;
+        if (trackingRandomUsage) game.randomModeUsedMillis = Math.min(10001, before + Math.max(0, now - randomUsageAt));
+        randomUsageAt = now;
+        trackingRandomUsage = resumed && tab == 0 && game.randomMode && !questTimelines && !questRearrange;
+        if (before <= 10000 && game.randomModeUsedMillis > 10000) store.save();
+    }
     private void render() {
+        accountRandomUsage();
+        if (toolListDrag != null) { toolListDrag.cancel(); toolListDrag = null; }
+        if (briefEditor != null) { briefEditor.captureState(); briefEditor = null; }
+        captureToolsScroll(); toolsScroll = null;
+        if (choiceEditor != null) { choiceEditor.captureState(); choiceEditor = null; }
         cancelLawImpacts();
         stopAnimation();
         if (boardScroll != null) boardScrollY = boardScroll.getScrollY();
         boardScroll = null;
         questViews.clear();
-        ui = new Ui(this, tab == 1 ? 0 : game.hue);
+        ui = new Ui(this, tab == 1 ? 0 : tab == 3 ? (game.hue + 55) % 360 : game.hue);
         if (tab == 0 && game.session != null) for (Game.Quest q : game.quests)
             if (q.id.equals(game.session.questId)) { ui = questPalette(q); break; }
         getWindow().setNavigationBarColor(ui.background);
         getWindow().setStatusBarColor(ui.background);
         timerValue = null;
         focusValue = null;
-        balanceGraph = null;
+        balanceGraph = null;timelineViews.clear();
         remainingLabels.clear();
         bountyLabels.clear();
         lawTimers.clear();
@@ -254,13 +326,26 @@ public final class MainActivity extends Activity {
         });
         setContentView(frame);
         root.requestApplyInsets();
-        if (!landscape()) addHeader();
+        if (!landscape() || tab == 3) addHeader();
         FrameLayout body = new FrameLayout(this);
         root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
-        if (tab == 2) buildSettings(body);
+        if (tab == 3) buildTools(body);
+        else if (tab == 2) buildSettings(body);
         else if (tab == 0 ? questTimelines && game.questControlsUnlocked() : fineTimelines && game.lawControlsUnlocked()) buildTimelines(body);
         else if (tab == 0 && game.session != null && !questRearrange) buildTimer(body);
-        else buildBoard(body);
+        else {
+            buildBoard(body);
+            if (tab == 0 && game.questsCreated >= 1 && game.questsCreated < 4) {
+                TextView encouragement = text("Create more quests to continue!", 16, ui.border);
+                encouragement.setGravity(Gravity.CENTER); encouragement.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8));
+                FrameLayout.LayoutParams position = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER);
+                body.addView(encouragement, position);
+            }
+        }
+        if (rearranging()) {
+            addNavigation(); root.getChildAt(root.getChildCount() - 1).setVisibility(View.GONE);
+            LinearLayout actions = row(); Button back = button("Back", ui.border); addAction(actions, back); root.addView(actions); back.setOnClickListener(v -> navigateBack());
+        } else {
         if (analyticsPage()) {
             View divider = new View(this); divider.setBackgroundColor(ui.border); root.addView(divider, new LinearLayout.LayoutParams(-1, 1));
             addAnalyticsBar();
@@ -269,14 +354,13 @@ public final class MainActivity extends Activity {
             root.addView(energyDivider, new LinearLayout.LayoutParams(-1, 1));
             addEnergyBar();
         }
-        if (tab != 2) {
+        if (tab == 0 || tab == 1) {
             View divider = new View(this); divider.setBackgroundColor(ui.border);
             root.addView(divider, new LinearLayout.LayoutParams(-1, 1));
             addFooter();
         }
-        View navigationDivider = new View(this); navigationDivider.setBackgroundColor(ui.border);
-        root.addView(navigationDivider, new LinearLayout.LayoutParams(-1, 1));
         addNavigation();
+        }
         flight = new CoinFlight(this);
         frame.addView(flight, new FrameLayout.LayoutParams(-1, -1));
         receipt = text("", 14, ui.text);
@@ -303,13 +387,14 @@ public final class MainActivity extends Activity {
     private void addHeader() {
         LinearLayout header = row(); header.setPadding(ui.dp(12), 0, ui.dp(12), 0);
         header.setBackground(ui.panel(ui.border));
-        header.addView(ui.icon(tab == 1 ? "fine" : tab == 2 ? "settings" : "bulletin", ui.border, 38));
+        header.addView(ui.icon(tab == 1 ? "fine" : tab == 2 || tab == 3 ? "settings" : "bulletin", ui.border, 38));
         LinearLayout words = column(); words.setPadding(ui.dp(10), 0, 0, 0); words.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text(tab == 0 && questTimelines || tab == 1 && fineTimelines ? "Timeline" : tab == 1 ? "LAW" : tab == 2 ? "SETTINGS" : "BULLETIN", 20, ui.text);
+        TextView title = text(tab == 0 && questTimelines || tab == 1 && fineTimelines ? "Timeline" : tab == 3 ? (toolsPage == 0 ? "Tools" : toolsTool == 1 ? "Creative Brief Generator" : "Choice Randomizer") : tab == 1 ? "LAW" : tab == 2 ? "SETTINGS" : "BULLETIN", 20, ui.text);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD); title.setLetterSpacing(.13f);
+        if (tab == 3) { title.setSingleLine(true); title.setAutoSizeTextTypeUniformWithConfiguration(12, 20, 1, android.util.TypedValue.COMPLEX_UNIT_SP); }
         words.addView(title);
         TextView subtitle = text(tab == 1 ? "Keep your word. Own your mistakes." : tab == 2 ? "Set your own rhythm." : LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault())), 11, ui.muted);
-        if (tab != 2) words.addView(subtitle);
+        if (tab != 2 && tab != 3) words.addView(subtitle);
         header.addView(words, new LinearLayout.LayoutParams(0, -1, 1));
         root.addView(header, spaced(-1, 64));
     }
@@ -319,6 +404,11 @@ public final class MainActivity extends Activity {
         List<Game.Quest> result = game.boardQuests();
         if (previousDay != game.randomDay || !before.equals(game.randomQuestIds)) store.save();
         return result;
+    }
+    private void enterBoardRearrange() {
+        if (tab == 0) { questRearrange = true; questTimelines = false; firstRearrangeSession = !game.rearrangeVisited; game.rearrangeVisited = true; store.save(); }
+        else { lawRearrange = true; fineTimelines = false; }
+        render();
     }
     private boolean rearranging() { return tab == 0 ? questRearrange : tab == 1 && lawRearrange; }
     private List<Game.Quest> boardQuestsForMode() { return questRearrange && tab == 0 ? new ArrayList<>(game.quests) : visibleQuests(); }
@@ -333,7 +423,7 @@ public final class MainActivity extends Activity {
             String explanation = tab == 1 ? "Add a law for a habit you want to leave behind."
                 : game.completedToday > 0 ? game.completedToday + " quests completed today. Your board is clear."
                 : questsScheduledLater() ? "No quests are due right now. Your scheduled quests will appear on their date."
-                : "Tap + to put a quest on the board.";
+                : "Tap the + button in the bottom left corner to create a quest!";
             TextView hint = text(explanation, 13, ui.muted); hint.setGravity(Gravity.CENTER); empty.addView(hint);
             if (tab == 0 && game.randomMode) addRandomRefresh(empty);
             body.addView(empty, new FrameLayout.LayoutParams(-1, -1)); return;
@@ -628,6 +718,29 @@ public final class MainActivity extends Activity {
         if (landscape()) { TextView title = text("Timeline", 20, ui.text); title.setGravity(Gravity.CENTER); rows.addView(title, fieldParams()); }
         if (analyticsTab() != 0) { buildStatistics(rows); scroll.addView(rows); body.addView(scroll, new FrameLayout.LayoutParams(-1, -1)); return; }
         String kind = tab == 1 ? Game.FINE_HISTORY : Game.QUEST_HISTORY;
+        TimelineRange.Window window=TimelineRange.window(game,kind,System.currentTimeMillis(),ZoneId.systemDefault());
+        LinearLayout presets = row(); String[] presetNames = {"Today", "Week", "Month", "3 Months", "All Time"};
+        int selectedPreset = tab == 1 ? lawTimelinePreset : questTimelinePreset;
+        for (int i = 0; i < presetNames.length; i++) {
+            final int index = i; Button preset = button(presetNames[i], selectedPreset == i ? Ui.GOLD : ui.border);
+            preset.setTextSize(11); preset.setMinHeight(0); preset.setMinimumHeight(0); preset.setPadding(0, 0, 0, 0);
+            preset.setSelected(selectedPreset == i); preset.setContentDescription("Timeline range: " + presetNames[i]);
+            presets.addView(preset, new LinearLayout.LayoutParams(0, ui.dp(36), 1));
+            preset.setOnClickListener(v -> {
+                long firstDay = Statistics.rangeStart(game.day, index);
+                long start = index == 4 ? 0 : java.time.LocalDate.ofEpochDay(firstDay).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                if (kind.equals(Game.QUEST_HISTORY)) { game.questTimelineStart = start; game.questTimelineEnd = 0; questTimelinePreset = index; }
+                else { game.lawTimelineStart = start; game.lawTimelineEnd = 0; lawTimelinePreset = index; }
+                store.save(); render();
+            });
+        }
+        rows.addView(presets, new LinearLayout.LayoutParams(-1, -2));
+        BalanceRangeSlider range=new BalanceRangeSlider(this,ui,"Timeline date range",window.minimum,window.maximum,window.start,window.end,(start,end,finished)->{
+            questTimelinePreset = -1; lawTimelinePreset = -1; for (int i = 0; i < presets.getChildCount(); i++) { Button preset = (Button) presets.getChildAt(i); preset.setSelected(false); preset.setTextColor(ui.border); preset.setBackground(ui.button(ui.border)); ((BorderedButton) preset).setBorderColor(ui.border); }
+            if(kind.equals(Game.QUEST_HISTORY)){game.questTimelineStart=start;game.questTimelineEnd=end;}else{game.lawTimelineStart=start;game.lawTimelineEnd=end;}
+            TimelineRange.Window selected=TimelineRange.window(game,kind,System.currentTimeMillis(),ZoneId.systemDefault());for(TimelineView view:timelineViews)view.refreshRange(selected);if(finished){store.save();renderedRevision=store.revision;}
+        });
+        rows.addView(range,new LinearLayout.LayoutParams(-1,ui.dp(60)));
         java.util.Map<String, String> entities = new java.util.LinkedHashMap<>();
         if (tab == 0) for (Game.Quest q : game.activeRepeatableQuests()) entities.put(q.id, q.name);
         else for (Game.Fine f : game.fines) entities.put(f.id, f.name);
@@ -642,7 +755,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, ui.dp(48)); p.setMargins(0, ui.dp(12), 0, ui.dp(12));
         Ui palette = ui;
         if (kind.equals(Game.QUEST_HISTORY)) for (Game.Quest q : game.quests) if (q.id.equals(id)) { palette = questPalette(q); break; }
-        content.addView(new TimelineView(this, game, palette, kind, id, name, showName), p);
+        TimelineView view=new TimelineView(this,game,palette,kind,id,name,showName);timelineViews.add(view);content.addView(view,p);
     }
     private View questCard(Game.Quest quest) {
         boolean required = game.isRequired(quest);
@@ -692,13 +805,13 @@ public final class MainActivity extends Activity {
             card.setOnLongClickListener(v -> beginBoardDrag(card, quest));
         } else {
             addSwipe(card, () -> deleteEntry(quest, null), () -> editQuest(quest));
-            card.setOnLongClickListener(v -> { withUi(palette, () -> manageEntry(quest, null)); return true; });
+            card.setOnLongClickListener(v -> { enterBoardRearrange(); return true; });
             card.setOnClickListener(v -> {
                 if (!quest.repeatable && quest.done(game.day)) { manageEntry(quest, null); return; }
                 showQuest(quest);
             });
         }
-        card.setContentDescription(quest.name + ". " + description + (rearranging() ? ". Drag to rearrange" + (game.questActiveToday(quest) ? "" : ". Inactive today") : ". Long press for options. Swipe left to edit, right to delete"));
+        card.setContentDescription(quest.name + ". " + description + (rearranging() ? ". Drag to rearrange" + (game.questActiveToday(quest) ? "" : ". Inactive today") : ". Long press to rearrange. Swipe left to edit, right to delete"));
         return card;
     }
     private View fineCard(Game.Fine fine) {
@@ -713,19 +826,19 @@ public final class MainActivity extends Activity {
         setEmojiIcon(card, fine.emoji, ui); questViews.put(fine.id, card);
         if (rearranging()) immediateDrag(addDragGrip(card), card, fine);
         if (fine.id.equals(boardDragId)) card.setVisibility(View.INVISIBLE);
-        card.setContentDescription(fine.name + (rearranging() ? ". Drag to rearrange" : fine.mode == Game.AMOUNT ? ". Amount allowance. Tap to increase. Long press for options" : fine.mode == Game.TIMED ? ". Timed allowance. Tap to start or pause. Long press for options" : ". Tap to report. Long press for options"));
+        card.setContentDescription(fine.name + (rearranging() ? ". Drag to rearrange" : fine.mode == Game.AMOUNT ? ". Amount allowance. Tap to increase. Long press to rearrange" : fine.mode == Game.TIMED ? ". Timed allowance. Tap to start or pause. Long press to rearrange" : ". Tap to report. Long press to rearrange"));
         if (rearranging()) {
             card.setOnClickListener(v -> {});
             card.setOnLongClickListener(v -> beginBoardDrag(card, fine));
         } else {
             addSwipe(card, () -> deleteEntry(null, fine), () -> editFine(fine));
-            card.setOnLongClickListener(v -> { manageEntry(null, fine); return true; });
+            card.setOnLongClickListener(v -> { enterBoardRearrange(); return true; });
             card.setOnClickListener(v -> activateLaw(fine));
         }
         return card;
     }
     private View addDragGrip(LinearLayout card) {
-        Ui palette = new Ui(this, game.hue);
+        Ui palette = tab == 3 ? ui : new Ui(this, game.hue);
         View grip = new View(this) {
             private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
             @Override protected void onDraw(android.graphics.Canvas canvas) {
@@ -886,10 +999,22 @@ public final class MainActivity extends Activity {
                 TextView label = text(labels[i], 12, color); label.setGravity(Gravity.CENTER);
                 option.addView(label, new FrameLayout.LayoutParams(-1, -1));
             } else option.addView(ui.icon(symbols[i], color, 24), new FrameLayout.LayoutParams(ui.dp(24), ui.dp(24), Gravity.CENTER));
-            int[] questSeconds = {5400, 2700, 1500, 900, 420, 20}, restSeconds = {1200, 600, 300, 240, 120, 10};
-            option.setTooltipText(labels[i] + " · Quest " + TimerService.format(questSeconds[i] * 1000L) + " · Rest " + TimerService.format(restSeconds[i] * 1000L));
             bar.addView(option, new LinearLayout.LayoutParams(0, ui.dp(28), 1));
-            option.setOnClickListener(v -> { store.sync(); if (game.energy != energy) { game.energy = energy; store.save(); render(); } });
+            option.setOnClickListener(v -> {
+                store.sync();
+                if (game.energy != energy) { game.energy = energy; store.save(); render(); }
+                if (!game.energyHintShown && !energyHintPending) {
+                    energyHintPending = true;
+                    effects.postDelayed(new Runnable() {
+                        @Override public void run() {
+                            if (game.energyHintShown) { energyHintPending = false; return; }
+                            if (!resumed || dialog != null && dialog.isShowing()) { effects.postDelayed(this, 200); return; }
+                            game.energyHintShown = true; energyHintPending = false; store.save(); renderedRevision = store.revision;
+                            showInformation("You just set your energy level. This changes the duration of your next quest.\nThese quest and rest durations are based on the Pomodoro Principles.");
+                        }
+                    }, 400);
+                }
+            });
         }
         root.addView(bar, new LinearLayout.LayoutParams(-1, -2));
     }
@@ -942,7 +1067,7 @@ public final class MainActivity extends Activity {
     private void buildStatistics(LinearLayout rows) {
         int selectedRange = tab == 1 ? lawPieRange : questPieRange;
         if (analyticsTab() == 1) {
-            LinearLayout ranges = row(); String[] names = {"Today", "Week", "Month", "3 Months", "Year"};
+            LinearLayout ranges = row(); String[] names = {"Today", "Week", "Month", "3 Months", "All Time"};
             for (int i = 0; i < names.length; i++) {
                 final int index = i; Button range = button(names[i], selectedRange == i ? Ui.GOLD : ui.border);
                 range.setTextSize(11); range.setMinHeight(0); range.setMinimumHeight(0); range.setPadding(0, 0, 0, 0);
@@ -998,7 +1123,7 @@ public final class MainActivity extends Activity {
         int controlBottom = 0;
         Button plus = button("+", ui.border); plus.setTextSize(22); plus.setMinHeight(0); plus.setMinimumHeight(0); plus.setPadding(0, 0, 0, 0);
         plus.setContentDescription(tab == 1 ? "Create a law" : "Create a quest");
-        plus.setOnClickListener(v -> { if (tab == 1) createFine(); else showAddMenu(); });
+        plus.setOnClickListener(v -> { if (tab == 1) createFine(); else if (game.questsCreated < 3) createQuest(); else showAddMenu(); });
         FrameLayout.LayoutParams add = new FrameLayout.LayoutParams(ui.dp(32), ui.dp(32), Gravity.START | controlGravity);
         add.setMargins(0, 0, 0, controlBottom); footer.addView(plus, add);
         boolean canRearrange = tab == 0 ? game.questRearrangeUnlocked() : game.lawRearrangeUnlocked();
@@ -1010,7 +1135,7 @@ public final class MainActivity extends Activity {
             FrameLayout.LayoutParams editParams = new FrameLayout.LayoutParams(ui.dp(32), ui.dp(32), Gravity.START | controlGravity);
             editParams.leftMargin = ui.dp(32); footer.addView(edit, editParams);
             edit.setOnClickListener(v -> {
-                if (tab == 0) { questRearrange = !questRearrange; questTimelines = false; }
+                if (tab == 0) { questRearrange = !questRearrange; questTimelines = false; firstRearrangeSession = questRearrange && !game.rearrangeVisited; if (questRearrange) { game.rearrangeVisited = true; store.save(); } }
                 else { lawRearrange = !lawRearrange; fineTimelines = false; }
                 render();
             });
@@ -1023,7 +1148,7 @@ public final class MainActivity extends Activity {
             view.setText(""); Ui.Icon icon = new Ui.Icon("timeline", ui.border); icon.setBounds(0, 0, ui.dp(24), ui.dp(24));
             view.setCompoundDrawables(icon, null, null, null); view.setPadding(ui.dp(4), 0, ui.dp(4), 0);
         }
-        view.setOnClickListener(v -> { if (tab == 1) { fineTimelines = !fineTimelines; lawRearrange = false; } else { questTimelines = !questTimelines; questRearrange = false; } render(); });
+        view.setOnClickListener(v -> { if (tab == 1) { fineTimelines = !fineTimelines; lawRearrange = false; } else { questTimelines = !questTimelines; questRearrange = false; } render(); if ((questTimelines || fineTimelines) && !game.timelineHintShown) { game.timelineHintShown = true; store.save(); showInformation("Here you can track your progress over time."); } });
         FrameLayout.LayoutParams toggle = new FrameLayout.LayoutParams(ui.dp(32), ui.dp(32), Gravity.START | controlGravity);
         toggle.setMargins(ui.dp(canRearrange ? 64 : 32), 0, 0, controlBottom); footer.addView(view, toggle);
         LinearLayout values = row(); values.setGravity(Gravity.CENTER);
@@ -1060,7 +1185,10 @@ public final class MainActivity extends Activity {
             random.setOnClickListener(v -> {
                 store.sync(); game.randomMode = !game.randomMode;
                 if (game.randomMode) game.refreshRandomQuests(new java.util.Random());
+                boolean explainChoices = game.randomMode && !game.choiceHintShown;
+                if (explainChoices) game.choiceHintShown = true;
                 store.save(); render();
+                if (explainChoices) showInformation("You activated choice mode. Use this when you don't know what quest to pick.");
             });
             footer.post(() -> {
                 int width = footer.getWidth();
@@ -1091,21 +1219,204 @@ public final class MainActivity extends Activity {
         coinsValue.setSingleLine(true); coinsValue.setAutoSizeTextTypeUniformWithConfiguration(8, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         coinGroup.addView(coinsValue, new LinearLayout.LayoutParams(0, -1, 1)); coinsValue.setGravity(Gravity.CENTER);
         coinTarget = coinGroup; counters.addView(coinGroup, new LinearLayout.LayoutParams(0, -1, 1));
-        LinearLayout.LayoutParams counterParams = new LinearLayout.LayoutParams(0, ui.dp(32), 2.95f);
+        LinearLayout.LayoutParams counterParams = new LinearLayout.LayoutParams(0, ui.dp(32), 2.3f);
         bar.addView(counters, counterParams);
-        String[] labels = {"Bulletin", "Law", "Settings"};
+        String[] labels = {"Bulletin", "Law", "Tools", "Settings"};
+        int[] tabs = {0, 1, 3, 2};
         String[] icons = {"bulletin", "fine", "settings"};
-        for (int i = 0; i < 3; i++) {
-            final int index = i;
+        for (int i = 0; i < labels.length; i++) {
+            final int index = tabs[i];
             LinearLayout item = column(); item.setGravity(Gravity.CENTER);
-            item.setBackground(ui.button(tab == i ? ui.text : ui.border));
-            item.setFocusable(true); item.setContentDescription(labels[i]); item.setSelected(tab == i);
-            TextView label = text(labels[i], 9, tab == i ? ui.text : ui.muted); label.setGravity(Gravity.CENTER); item.addView(label);
-            item.setOnClickListener(v -> { if (tab != index) { store.sync(); questTimelines = false; fineTimelines = false; tab = index; render(); } });
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ui.dp(32), .5f);
+            item.setBackground(ui.button(tab == index ? ui.text : ui.border));
+            item.setFocusable(true); item.setContentDescription(labels[i]); item.setSelected(tab == index);
+            TextView label = text(labels[i], 9, tab == index ? ui.text : ui.muted); label.setGravity(Gravity.CENTER); item.addView(label);
+            item.setOnClickListener(v -> { if (tab != index || index == 3 && toolsPage > 0) { if (briefEditor != null) briefEditor.freezeState(); if (choiceEditor != null) choiceEditor.freezeState(); hideKeyboard(); store.sync(); questTimelines = false; fineTimelines = false; if (tab == 3 && index == 3) toolsPage = 0; tab = index; render(); } });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ui.dp(32), .65f);
             bar.addView(item, p);
         }
-        root.addView(bar);
+        LinearLayout navigation = column();
+        View divider = new View(this); divider.setBackgroundColor(ui.border);
+        navigation.addView(divider, new LinearLayout.LayoutParams(-1, 1)); navigation.addView(bar);
+        FrameLayout reveal = new FrameLayout(this); reveal.setClipChildren(true);
+        int fullHeight = ui.dp(32) + 1;
+        reveal.addView(navigation, new FrameLayout.LayoutParams(-1, fullHeight));
+        LinearLayout.LayoutParams revealParams = new LinearLayout.LayoutParams(-1, fullHeight);
+        root.addView(reveal, revealParams);
+        if (game.questsCreated < 4) reveal.setVisibility(View.GONE);
+        else if (navigationRevealAt > 0) {
+            long elapsed = android.os.SystemClock.uptimeMillis() - navigationRevealAt;
+            if (elapsed < 350) {
+                float initial = Math.max(0f, elapsed / 350f);
+                revealParams.height = Math.round(fullHeight * initial); reveal.setLayoutParams(revealParams);
+                navigation.setTranslationY(fullHeight * (1f - initial));
+                android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(initial, 1f);
+                animator.setStartDelay(Math.max(0, -elapsed)); animator.setDuration(Math.round(350 * (1f - initial)));
+                animator.setInterpolator(new android.view.animation.LinearInterpolator());
+                animator.addUpdateListener(value -> {
+                    if (!reveal.isAttachedToWindow()) { animator.cancel(); return; }
+                    float fraction = (Float) value.getAnimatedValue();
+                    revealParams.height = Math.round(fullHeight * fraction); reveal.setLayoutParams(revealParams);
+                    navigation.setTranslationY(fullHeight * (1f - fraction));
+                });
+                reveal.post(animator::start);
+            }
+        }
+    }
+    private void captureToolsScroll() {
+        if (toolsScroll != null && !toolsScrollRestoring) toolsScrollPositions[toolsScrollPage] = toolsScroll.getScrollY();
+    }
+    private List<Game.ChoiceList> activeToolLists() { return toolsTool == 1 ? game.briefLists : game.choiceLists; }
+    private Button toolMenuButton(String name, String emoji) {
+        Button item = button(emoji + "  " + name, ui.border); item.setTextColor(ui.text);
+        item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setPadding(ui.dp(12), 0, ui.dp(12), 0);
+        item.setContentDescription(name); return item;
+    }
+    private void buildTools(FrameLayout body) {
+        if (toolsPage == 2) {
+            Game.ChoiceList selected = null;
+            for (Game.ChoiceList list : activeToolLists()) if (list.id.equals(choiceListId)) selected = list;
+            if (selected != null && toolsTool == 1) {
+                if (briefDictionary == null) try (java.io.Reader reader = new java.io.InputStreamReader(getAssets().open("creative-brief.tsv"), java.nio.charset.StandardCharsets.UTF_8)) {
+                    briefDictionary = BriefDictionary.read(reader);
+                } catch (java.io.IOException error) { Toast.makeText(this, "Could not load brief dictionary", Toast.LENGTH_LONG).show(); toolsPage = 1; }
+                if (briefDictionary != null) {
+                    CreativeBrief model = briefSessions.get(selected.id);
+                    if (model == null || model.fields != selected.items) { model = new CreativeBrief(selected.items); model.restore(briefSessionStates.getStringArray(selected.id), briefDictionary); briefSessions.put(selected.id, model); }
+                    model.showTitles = game.briefShowTitles;
+                    briefEditor = new CreativeBriefView(this, ui, model, briefDictionary, () -> { effects.removeCallbacks(saveChoices); effects.postDelayed(saveChoices, 500); }, () -> navigateBack(), this::pickBriefCategory, visible -> { game.briefShowTitles = visible; for (CreativeBrief session : briefSessions.values()) session.showTitles = visible; store.save(); renderedRevision = store.revision; });
+                    body.addView(briefEditor, new FrameLayout.LayoutParams(-1, -1)); return;
+                }
+            }
+            if (selected != null && toolsTool == 0) {
+                ChoiceRandomizer model = choiceRandomizers.get(selected.id);
+                if (model == null || model.items != selected.items) { model = new ChoiceRandomizer(selected.items); model.editor.restore(choiceEditorStates.getIntArray(selected.id)); model.restore(choiceSessionStates.getLongArray(selected.id)); choiceRandomizers.put(selected.id, model); }
+                choiceEditor = new ChoiceRandomizerView(this, ui, model, () -> {
+                    effects.removeCallbacks(saveChoices); effects.postDelayed(saveChoices, 500);
+                }, () -> navigateBack());
+                body.addView(choiceEditor, new FrameLayout.LayoutParams(-1, -1));
+                return;
+            }
+            toolsPage = 1;
+        }
+        LinearLayout content = column();
+        ScrollView scroll = new ScrollView(this);
+        toolsScroll = scroll; toolsScrollPage = toolsPage == 0 ? 0 : toolsTool + 1; toolsScrollRestoring = true;
+        final int sectionPage = toolsScrollPage;
+        scroll.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                if (toolsScroll == scroll) { scroll.scrollTo(0, toolsScrollPositions[sectionPage]); toolsScrollRestoring = false; }
+                return true;
+            }
+        });
+        LinearLayout list = column(); list.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8));
+        scroll.addView(list); content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        if (toolsPage == 0) {
+            Button choices = toolMenuButton("Choice Randomizer", "🎲");
+            choices.setOnClickListener(v -> { toolsTool = 0; toolsPage = 1; render(); });
+            LinearLayout.LayoutParams choiceParams = new LinearLayout.LayoutParams(-1, ui.dp(52)); choiceParams.bottomMargin = ui.dp(8); list.addView(choices, choiceParams);
+            Button briefs = toolMenuButton("Creative Brief Generator", "🎨");
+            briefs.setOnClickListener(v -> { toolsTool = 1; toolsPage = 1; render(); }); list.addView(briefs, new LinearLayout.LayoutParams(-1, ui.dp(52)));
+            Button meditation = toolMenuButton("Meditation Bell", "🔔");
+            meditation.setOnClickListener(v -> startActivity(new Intent(this, MeditationActivity.class).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION), android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()));
+            LinearLayout.LayoutParams meditationParams = new LinearLayout.LayoutParams(-1, ui.dp(52)); meditationParams.topMargin = ui.dp(8); list.addView(meditation, meditationParams);
+            Button pdf = toolMenuButton("PDF Reader", "📖");
+            pdf.setOnClickListener(v -> startActivity(new Intent(this, PdfLibraryActivity.class).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION), android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()));
+            LinearLayout.LayoutParams pdfParams = new LinearLayout.LayoutParams(-1, ui.dp(52)); pdfParams.topMargin = ui.dp(8); list.addView(pdf, pdfParams);
+        } else {
+            {
+                TextView introduction = text(toolsTool == 1
+                        ? "Let the app create a prompt for your next drawing, 3d model or other creative pursuits."
+                        : "Create a list of options and let the app pick for you.", 12, ui.border);
+                introduction.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(12));
+                list.addView(introduction, new LinearLayout.LayoutParams(-1, -2));
+            }
+            LinearLayout nameRows = column(); list.addView(nameRows);
+            for (Game.ChoiceList entry : activeToolLists()) {
+                View choice;
+                if (toolNamesArrange[toolsTool]) choice = toolListCard(entry);
+                else {
+                    Button open = button(entry.name, ui.border); open.setTextColor(ui.text);
+                    open.setOnClickListener(v -> { choiceListId = entry.id; toolsPage = 2; render(); });
+                    open.setOnLongClickListener(v -> { toolNamesArrange[toolsTool] = true; render(); return true; }); choice = open;
+                }
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, ui.dp(52)); p.bottomMargin = ui.dp(8); nameRows.addView(choice, p);
+            }
+            if (toolNamesArrange[toolsTool]) toolListDrag = new ToolListReorder(nameRows, scroll, content, activeToolLists(), () -> { store.save(); render(); }, ui);
+            LinearLayout actions = row();
+            Button back = button("Back", ui.border); back.setTextColor(ui.text); back.setOnClickListener(v -> navigateBack());
+            LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(0, ui.dp(48), 1); backParams.setMargins(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); actions.addView(back, backParams);
+            if (!toolNamesArrange[toolsTool]) {
+                Button add = button("Add", ui.border); add.setTextColor(ui.text); add.setContentDescription(toolsTool == 1 ? "Add brief list" : "Add choice list"); add.setOnClickListener(v -> addChoiceList());
+                LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(0, ui.dp(48), 1); addParams.setMargins(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); actions.addView(add, addParams);
+            }
+            content.addView(actions);
+        }
+        body.addView(content, new FrameLayout.LayoutParams(-1, -1));
+    }
+    private View toolListCard(Game.ChoiceList entry) {
+        LinearLayout card = row(); card.setGravity(Gravity.CENTER_VERTICAL); card.setPadding(ui.dp(8), 0, ui.dp(8), 0); card.setBackground(ui.button(ui.border)); card.setTag(entry);
+        TextView name = text(entry.name, 14, ui.text); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END); card.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+        for (String action : new String[]{"edit", "trash"}) {
+            Button control = button("", ui.border); Ui.Icon icon = new Ui.Icon(action, ui.border); icon.setBounds(0, 0, ui.dp(24), ui.dp(24)); control.setCompoundDrawables(icon, null, null, null);
+            control.setMinHeight(0); control.setMinimumHeight(0); control.setPadding(ui.dp(4), 0, ui.dp(4), 0); control.setContentDescription((action.equals("edit") ? "Edit list: " : "Delete list: ") + entry.name);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ui.dp(32), ui.dp(36)); if (action.equals("edit")) p.rightMargin = ui.dp(4); card.addView(control, p);
+            control.setOnClickListener(v -> { if (action.equals("edit")) editToolList(entry); else deleteToolList(entry); });
+        }
+        View grip = addDragGrip(card); grip.setContentDescription("Drag list: " + entry.name);
+        View.OnLongClickListener begin = held -> { boolean started = card.startDragAndDrop(android.content.ClipData.newPlainText("tool-list", ""), new View.DragShadowBuilder(card), card, 0); if (started) card.setVisibility(View.INVISIBLE); return started; };
+        card.setOnLongClickListener(begin); grip.setOnClickListener(v -> begin.onLongClick(v));
+        grip.setOnTouchListener((v, event) -> { if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) { v.performClick(); return true; } return true; });
+        card.setContentDescription(entry.name + ". Drag to rearrange"); return card;
+    }
+    private void deleteToolList(Game.ChoiceList entry) {
+        LinearLayout content = column(); content.addView(label("Delete list?")); content.addView(label(entry.name)); content.addView(help("Delete this list and all its items?"));
+        LinearLayout actions = row(); Button cancel = button("Cancel", ui.border), delete = button("Delete", Ui.RED); addAction(actions, cancel); addAction(actions, delete); content.addView(actions);
+        Dialog window = showDialog(content); cancel.setOnClickListener(v -> window.dismiss());
+        delete.setOnClickListener(v -> { activeToolLists().remove(entry); briefSessions.remove(entry.id); briefSessionStates.remove(entry.id); choiceRandomizers.remove(entry.id); choiceEditorStates.remove(entry.id); choiceSessionStates.remove(entry.id); if (choiceListId.equals(entry.id)) choiceListId = ""; store.save(); window.dismiss(); render(); });
+    }
+    private void addChoiceList() { editToolList(null); }
+    private void editToolList(Game.ChoiceList existing) {
+        LinearLayout content = column();
+        EditText name = input("", false); name.setContentDescription("List name"); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(200)}); if (existing != null) name.setText(existing.name);
+        content.addView(name, fieldParams());
+        LinearLayout actions = row(); Button cancel = button("Cancel", ui.border), create = button(existing == null ? "Create" : "Save", ui.border);
+        cancel.setTextColor(ui.text); create.setTextColor(ui.text);
+        cancel.setContentDescription("Cancel"); create.setContentDescription(existing != null ? "Save list name" : toolsTool == 1 ? "Create brief list" : "Create choice list");
+        addAction(actions, cancel); addAction(actions, create); content.addView(actions);
+        Dialog window = showDialog(content);
+        cancel.setOnClickListener(v -> window.dismiss());
+        create.setOnClickListener(v -> { String value = name.getText().toString().trim(); if (value.isEmpty()) { name.requestFocus(); return; }
+            if (existing != null) existing.name = value; else { Game.ChoiceList entry = new Game.ChoiceList(); entry.name = value; if (toolsTool == 1) game.addBriefList(entry); else game.addChoiceList(entry); } store.save(); window.dismiss(); render(); });
+        name.requestFocus(); window.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+    }
+    private void pickBriefCategory(java.util.function.Consumer<String> selected) {
+        Ui palette = ui;
+        LinearLayout content = column(); content.setBackground(palette.panel(palette.border)); content.setPadding(palette.dp(8), palette.dp(8), palette.dp(8), palette.dp(8));
+        ScrollView scroll = new ScrollView(this); LinearLayout options = column(); scroll.addView(options); content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        Dialog window = new Dialog(this); dialog = window; briefPicker = window;
+        String[] names = {"Landscapes", "Creatures"};
+        String[][] categories = {{"Theme", "Time Period", "Ambience", "Location", "Architecture", "Scale"}, {"Animal", "Clothes Style", "Body Type", "Age", "Personality"}};
+        for (int g = 0; g < names.length; g++) {
+            final int group = g;
+            TextView heading = text((briefPickerExpanded[g] ? "▾  " : "▸  ") + names[g], 14, palette.border); heading.setGravity(Gravity.CENTER_VERTICAL); heading.setPadding(palette.dp(8), 0, palette.dp(8), 0); heading.setFocusable(true);
+            options.addView(heading, new LinearLayout.LayoutParams(-1, palette.dp(36)));
+            LinearLayout rows = column(); rows.setVisibility(briefPickerExpanded[g] ? View.VISIBLE : View.GONE); options.addView(rows);
+            heading.setOnClickListener(v -> { briefPickerExpanded[group] = !briefPickerExpanded[group]; rows.setVisibility(briefPickerExpanded[group] ? View.VISIBLE : View.GONE); heading.setText((briefPickerExpanded[group] ? "▾  " : "▸  ") + names[group]); fitBriefPicker(window); });
+            for (String category : categories[g]) {
+                Button choice = button(category, palette.border); choice.setTextColor(palette.text);
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, palette.dp(48)); p.topMargin = palette.dp(4); p.bottomMargin = palette.dp(4); rows.addView(choice, p);
+                choice.setOnClickListener(v -> { if (briefEditor != null) briefEditor.captureState(); window.dismiss(); selected.accept(category); briefEditor = null; render(); });
+            }
+        }
+        Button nevermind = button("Nevermind", palette.border); nevermind.setTextColor(palette.text); nevermind.setOnClickListener(v -> window.dismiss());
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, palette.dp(48)); p.topMargin = palette.dp(8); content.addView(nevermind, p);
+        window.setContentView(content); window.getWindow().setBackgroundDrawableResource(android.R.color.transparent); window.setOnDismissListener(v -> { if (dialog == window) dialog = null; if (briefPicker == window) briefPicker = null; });
+        window.show(); fitBriefPicker(window);
+    }
+    private void fitBriefPicker(Dialog window) {
+        int visible = (briefPickerExpanded[0] ? 6 : 0) + (briefPickerExpanded[1] ? 5 : 0);
+        window.getWindow().setLayout(Math.min(getResources().getDisplayMetrics().widthPixels - ui.dp(16), ui.dp(560)), Math.min(getResources().getDisplayMetrics().heightPixels - ui.dp(80), ui.dp(Math.min(640, 144 + visible * 56))));
     }
     private void buildSettings(FrameLayout body) {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
@@ -1237,6 +1548,7 @@ public final class MainActivity extends Activity {
         all.setOnClickListener(v -> { if (!requireAll[0]) quotaValue[0] = requiredTasks.getText().toString(); requireAll[0] = !requireAll[0]; updateQuota.run(); }); updateQuota.run();
         quota.setVisibility(View.GONE); mustDo.setOnCheckedChangeListener((v, checked) -> quota.setVisibility(checked ? View.VISIBLE : View.GONE));
         mustDo.setChecked(existing != null && existing.mustDo);
+        mustDo.setOnClickListener(v -> { if (mustDo.isChecked()) showInformation("With 'Must Do' enabled, set an amount of quests in this category that must be finished each day before midnight."); });
         CheckBox useColor = check("Use a category color"); content.addView(useColor, fieldParams());
         LinearLayout colors = column(); content.addView(colors);
         Ui[] palette = {ui}; EditText hue = questHuePicker(colors, existing != null && existing.hue >= 0 ? existing.hue : Math.round(game.hue), palette);
@@ -1257,8 +1569,17 @@ public final class MainActivity extends Activity {
             if (existing == null) game.addCategory(c); store.save(); hideKeyboard(); window.dismiss(); render();
         });
     }
+    private void showInformation(String message) { showInformation(message, null); }
+    private void showInformation(String message, Runnable onClosed) {
+        Dialog previous = dialog;
+        LinearLayout content = column(); TextView explanation = help(message); explanation.setTextSize(20); content.addView(explanation);
+        Button confirm = button("Confirm", ui.border); content.addView(confirm, fieldParams());
+        Dialog window = showDialog(content);
+        window.setOnDismissListener(v -> { if (dialog == window) dialog = previous != null && previous.isShowing() ? previous : null; if (onClosed != null) onClosed.run(); });
+        confirm.setOnClickListener(v -> window.dismiss());
+    }
     private void showSwipeHint() {
-        LinearLayout content = column(); content.addView(help("Swipe left on quests to edit them.\nSwipe right on quests to delete them."));
+        LinearLayout content = column(); TextView explanation = help("You just created your first quest! Create some more to get started."); explanation.setTextSize(20); content.addView(explanation);
         Button confirm = button("Confirm", ui.border); content.addView(confirm, fieldParams());
         Dialog window = showDialog(content); window.setCancelable(false);
         confirm.setOnClickListener(v -> { game.swipeHintShown = true; store.save(); window.dismiss(); });
@@ -1473,9 +1794,11 @@ public final class MainActivity extends Activity {
         final String newCategoryId = existing == null ? creatingCategoryId : "";
         LinearLayout content = column();
         content.addView(section(existing == null ? "NEW QUEST" : "EDIT QUEST"));
-        EditText name = input("Quest name", false); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)});
+        if (existing == null) content.addView(help("Write in a good habit you want to cultivate."));
+        EditText name = input("Activity", false); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)});
         content.addView(name, fieldParams());
         EditText emoji = emojiPicker(content, existing == null ? "" : existing.emoji);
+        final int advancedStart = content.getChildCount();
         Ui[] editorPalette = {ui};
         EditText hue = questHuePicker(content, existing == null || existing.hue < 0 ? Math.round(existing != null && existing.required ? 145 : game.hue) : existing.hue, editorPalette);
         CheckBox repeat = check("Multiple Times a Day"); content.addView(repeat, fieldParams());
@@ -1506,6 +1829,15 @@ public final class MainActivity extends Activity {
             }, date[0].getYear(), date[0].getMonthValue() - 1, date[0].getDayOfMonth());
             picker.getDatePicker().setMinDate(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()); picker.show();
         });
+        LinearLayout advanced = column();
+        while (content.getChildCount() > advancedStart) { View child = content.getChildAt(advancedStart); content.removeViewAt(advancedStart); advanced.addView(child); }
+        TextView advancedHeading = text((game.questAdvancedExpanded ? "▾  " : "▸  ") + "Advanced", 14, ui.border);
+        advancedHeading.setGravity(Gravity.CENTER_VERTICAL); advancedHeading.setPadding(ui.dp(8), 0, ui.dp(8), 0); advancedHeading.setFocusable(true);
+        advancedHeading.setContentDescription(game.questAdvancedExpanded ? "Advanced, expanded" : "Advanced, collapsed");
+        advanced.setVisibility(game.questAdvancedExpanded ? View.VISIBLE : View.GONE);
+        advancedHeading.setOnClickListener(v -> { game.questAdvancedExpanded = !game.questAdvancedExpanded; advanced.setVisibility(game.questAdvancedExpanded ? View.VISIBLE : View.GONE);
+            advancedHeading.setText((game.questAdvancedExpanded ? "▾  " : "▸  ") + "Advanced"); advancedHeading.setContentDescription(game.questAdvancedExpanded ? "Advanced, expanded" : "Advanced, collapsed"); store.save(); renderedRevision = store.revision; });
+        if (game.questsCreated >= 3) { content.addView(advancedHeading, new LinearLayout.LayoutParams(-1, ui.dp(40))); content.addView(advanced); }
         content.addView(section("PREREQUISITES"));
         content.addView(help("What needs to be ready before you begin?"));
         LinearLayout list = column(); content.addView(list);
@@ -1547,6 +1879,19 @@ public final class MainActivity extends Activity {
         Button cancel = button("Cancel", Ui.RED), save = button(existing == null ? "Create quest" : "Save quest", Ui.GREEN);
         addAction(actions, cancel); addAction(actions, save); content.addView(actions);
         Dialog window = showDialog(content);
+        if (existing != null && questRearrange && firstRearrangeSession && !game.rearrangeExitHintShown) {
+            window.setOnDismissListener(v -> {
+                if (dialog == window) dialog = null;
+                if (resumed && questRearrange && !game.rearrangeExitHintShown) {
+                    game.rearrangeExitHintShown = true; store.save();
+                    effects.post(() -> { if (resumed && questRearrange) showInformation("Tap Back to exit rearrange mode"); });
+                }
+            });
+        }
+        if (existing == null && game.questsCreated == 0 && !game.questCreationHintShown) {
+            game.questCreationHintShown = true; store.save(); renderedRevision = store.revision;
+            showInformation("Write a good habit you want to cultivate.");
+        }
         cancel.setOnClickListener(v -> window.dismiss());
         save.setOnClickListener(v -> {
             String title = name.getText().toString().trim();
@@ -1560,12 +1905,19 @@ public final class MainActivity extends Activity {
             if (existing == null) q.bountySince = Math.max(System.currentTimeMillis(), date[0].atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli());
             q.hue = color; q.emoji = emoji.getText().toString().trim();
             q.required = required.isChecked(); q.timed = !q.repeatable && timed.isChecked(); q.forever = forever.isChecked(); q.interval = between + 1; q.firstDay = date[0].toEpochDay(); q.questMinutes = -1;
-            if (!q.repeatable && !q.timed) { q.remainingMillis = -1; q.pausedRewardMinutes = -1; q.pausedReferenceMinutes = -1; q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1; q.pausedRestMillis = -1; }
+            if (!q.repeatable && !q.timed) { q.remainingMillis = -1; q.pausedRewardMinutes = -1; q.pausedReferenceMinutes = -1; q.pausedRewardMillis = -1; q.pausedReferenceMillis = -1; q.pausedRestMillis = -1; q.pausedEnergy = -1; q.pausedActiveMillis = 0; }
             q.prerequisites.clear();
             for (EditText line : prerequisites) { String value = line.getText().toString().trim(); if (!value.isEmpty()) q.prerequisites.add(value); }
             if (existing == null) { game.addQuest(q); game.assignCategory(q, newCategoryId); }
+            if (existing == null && game.questsCreated == 4) navigationRevealAt = android.os.SystemClock.uptimeMillis() + 500;
             store.save(); hideKeyboard(); window.dismiss(); render();
-            if (existing == null && game.questsCreated == 1 && !game.swipeHintShown) showSwipeHint();
+            if (existing == null) {
+                if (game.questsCreated == 1 && !game.swipeHintShown) showSwipeHint();
+                else if (game.questsCreated == 3) showInformation("The dice button in the bottom right lets the app pick two options for you at random. This often makes it easier to pick the next activity.");
+                else if (game.questsCreated == 2) showInformation("Use the arrow button in the bottom left to rearrange, edit or delete quests.");
+                else if (game.questsCreated == 6 && game.randomModeUsedMillis <= 10000) showInformation("Remember to use the dice button in the bottom right to pick!");
+                else if (game.questsCreated == 7 && !game.hasCreatedCategory && game.categories.isEmpty()) showInformation("Create categories to sort your quests into.");
+            }
         });
     }
     @android.annotation.SuppressLint("ClickableViewAccessibility")
@@ -1688,7 +2040,9 @@ public final class MainActivity extends Activity {
                 else { if (store.completeInstant(q)) Feedback.vibrate(this, false); render(); }
                 return;
             }
+            boolean showStartTutorial = false;
             if (game.start(q, System.currentTimeMillis())) {
+                if (!game.questStartHintShown) { game.questStartHintShown = true; showStartTutorial = true; }
                 store.notices.add(new GameStore.Notice(q.remainingMillis > 0 ? "Quest resumed. Pick up where you left off." : "Quest started. One step at a time.", 0));
                 accept.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
                 store.save(); ensureTimer();
@@ -1697,6 +2051,7 @@ public final class MainActivity extends Activity {
                 }
             }
             window.dismiss(); render();
+            if (showStartTutorial) showInformation("A quest has started, it is time for you to focus on the task you have set for yourself.");
         });
     }
     private void createFine() { editFine(null); }

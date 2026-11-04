@@ -13,17 +13,21 @@ import java.time.format.DateTimeFormatter;
 @android.annotation.SuppressLint("ViewConstructor")
 final class BalanceRangeSlider extends View {
     interface Listener { void changed(long start, long end, boolean finished); }
+    private final String rangeLabel;
     private final Ui ui; private final long minimum, maximum; private long start, end;
     private boolean movingStart = true; private final Listener listener;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     BalanceRangeSlider(Context context, Ui ui, long minimum, long maximum, long start, long end, Listener listener) {
-        super(context); this.ui=ui; this.minimum=minimum; this.maximum=Math.max(minimum+1,maximum); this.listener=listener;
+        this(context,ui,"Balance date range",minimum,maximum,start,end,listener);
+    }
+    BalanceRangeSlider(Context context, Ui ui, String label, long minimum, long maximum, long start, long end, Listener listener) {
+        super(context);this.rangeLabel=label; this.ui=ui; this.minimum=minimum; this.maximum=Math.max(minimum+1,maximum); this.listener=listener;
         this.start=start<=0?minimum:Math.max(minimum,Math.min(this.maximum-1,start));
         this.end=end<=0?this.maximum:Math.max(this.start+1,Math.min(this.maximum,end));
         setFocusable(true); setClickable(true); describe();
     }
     private String date(long at) { return DateTimeFormatter.ofPattern("d MMM yyyy").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(at)); }
-    private void describe() { setContentDescription("Balance date range: "+date(start)+" to "+date(end)+". Drag the left or right handle."); }
+    private void describe() { setContentDescription(rangeLabel+": "+date(start)+" to "+date(end)+". Drag the left or right handle."); }
     private float x(long at) { return ui.dp(16)+(getWidth()-ui.dp(32))*(float)((double)(at-minimum)/(maximum-minimum)); }
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas); paint.setColor(ui.muted);paint.setTextSize(ui.dp(11));canvas.drawText(date(start),ui.dp(8),ui.dp(16),paint);

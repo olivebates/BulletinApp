@@ -55,7 +55,7 @@ final class BalanceGraph extends View {
         rangeEnd = requestedEnd <= 0 ? availableEnd : Math.max(rangeStart + 1, Math.min(availableEnd, requestedEnd));
         points = BalanceHistory.window(game.balances, rangeStart, rangeEnd, game.coins);
         rangeMin = 0; rangeMax = 0;
-        for (Game.BalancePoint p : points) { rangeMin = Math.min(rangeMin, p.cents); rangeMax = Math.max(rangeMax, p.cents); }
+        for (Game.BalancePoint p : points) { rangeMin = Math.min(rangeMin, p.minimum); rangeMax = Math.max(rangeMax, p.maximum); }
         if (rangeMin == rangeMax) rangeMax = rangeMin + 100;
         float left = ui.dp(86), right = getWidth() - ui.dp(14), top = ui.dp(45), bottom = getHeight() - ui.dp(30);
         if (right <= left || bottom <= top) return;
@@ -70,19 +70,24 @@ final class BalanceGraph extends View {
         }
         line.reset(); boolean firstPoint = true;
         for (Game.BalancePoint p : points) { if (firstPoint) { line.moveTo(x(p.at), y(p.cents)); firstPoint = false; } else line.lineTo(x(p.at), y(p.cents)); }
-        paint.setColor(Ui.GOLD); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(1.5f)); canvas.drawPath(line, paint); paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Ui.GOLD); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(1.5f)); canvas.drawPath(line, paint);
+        paint.setAlpha(100);for(Game.BalancePoint p:points)if(p.periodStart>0)canvas.drawLine(x(p.at),y(p.minimum),x(p.at),y(p.maximum),paint);paint.setAlpha(255);paint.setStyle(Paint.Style.FILL);
         Game.BalancePoint inspected = selected >= 0 && selected < points.size() ? points.get(selected) : null;
         Game.BalancePoint dot = inspected != null ? inspected : points.get(points.size()-1); canvas.drawCircle(x(dot.at), y(dot.cents), ui.dp(4), paint);
         paint.setColor(ui.muted); paint.setTextSize(ui.dp(10)); DateTimeFormatter date = DateTimeFormatter.ofPattern("d MMM yyyy").withZone(ZoneId.systemDefault());
         canvas.drawText(date.format(Instant.ofEpochMilli(rangeStart)), left, getHeight()-ui.dp(10), paint);
         String last = date.format(Instant.ofEpochMilli(rangeEnd)); canvas.drawText(last, right-paint.measureText(last), getHeight()-ui.dp(10), paint);
         if (inspected != null) {
-            paint.setColor(ui.background); canvas.drawRect(ui.dp(8),ui.dp(31),getWidth()-ui.dp(8),ui.dp(82),paint);
-            paint.setColor(ui.border); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(1); canvas.drawRect(ui.dp(8),ui.dp(31),getWidth()-ui.dp(8),ui.dp(82),paint);paint.setStyle(Paint.Style.FILL);
+            int infoBottom=inspected.periodStart>0?105:82;
+            paint.setColor(ui.background); canvas.drawRect(ui.dp(8),ui.dp(31),getWidth()-ui.dp(8),ui.dp(infoBottom),paint);
+            paint.setColor(ui.border); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(1); canvas.drawRect(ui.dp(8),ui.dp(31),getWidth()-ui.dp(8),ui.dp(infoBottom),paint);paint.setStyle(Paint.Style.FILL);
             paint.setTextSize(ui.dp(11));paint.setColor(inspected.cents < 0 ? Ui.RED : Ui.GOLD);
             String value=Money.format(inspected.cents)+"  ·  "+DateTimeFormatter.ofPattern("d MMM yyyy HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(inspected.at));
             canvas.drawText(value,ui.dp(16),ui.dp(50),paint);paint.setColor(ui.text);infoPaint.set(paint);
-            canvas.drawText(android.text.TextUtils.ellipsize(inspected.cause,infoPaint,getWidth()-ui.dp(32),android.text.TextUtils.TruncateAt.END).toString(),ui.dp(16),ui.dp(70),paint);
+            if(inspected.periodStart>0){
+                canvas.drawText((inspected.precision==7?"Weekly":"Daily")+" summary · open "+Money.format(inspected.opening)+", close "+Money.format(inspected.cents),ui.dp(16),ui.dp(70),paint);
+                canvas.drawText("Low "+Money.format(inspected.minimum)+" · high "+Money.format(inspected.maximum),ui.dp(16),ui.dp(90),paint);
+            }else canvas.drawText(android.text.TextUtils.ellipsize(inspected.cause,infoPaint,getWidth()-ui.dp(32),android.text.TextUtils.TruncateAt.END).toString(),ui.dp(16),ui.dp(70),paint);
         }
     }
 }

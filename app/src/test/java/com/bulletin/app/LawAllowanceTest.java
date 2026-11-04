@@ -48,7 +48,7 @@ public class LawAllowanceTest {
     @Test public void runningAndPausedLawProgressPersistAndReconcileOfflineOnce() throws Exception {
         Game g = new Game(now, zone); Game.Fine running = law(g, Game.TIMED, 3, 20000), paused = law(g, Game.TIMED, 3, 30000);
         g.toggleLawTimer(running, now); g.toggleLawTimer(paused, now); g.toggleLawTimer(paused, now + 4000);
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 60000, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now + 60000, zone);
         List<Game.Event> events = loaded.advance(now + 60000, zone);
         assertEquals(1, events.stream().filter(e -> e.type.equals("lawLimit")).count()); assertEquals(0, loaded.fines.get(0).remaining(now + 60000));
         assertEquals(26000, loaded.fines.get(1).remaining(now + 60000)); assertTrue(loaded.advance(now + 60000, zone).isEmpty());
@@ -64,11 +64,11 @@ public class LawAllowanceTest {
     }
     @Test public void lawAndQuestTimersCanExpireAtTheSameInstantWithoutLosingEitherEvent() {
         Game g = new Game(now, zone); g.energy = Game.DEAD; Game.Quest q = new Game.Quest(); q.name = "Quest"; q.firstDay = g.day; q.repeatable = true; g.addQuest(q); g.start(q, now);
-        Game.Fine timer = law(g, Game.TIMED, 3, 20000); g.toggleLawTimer(timer, now);
-        List<Game.Event> events = g.advance(now + 20000, zone);
+        Game.Fine timer = law(g, Game.TIMED, 3, 120000); g.toggleLawTimer(timer, now);
+        List<Game.Event> events = g.advance(now + 120000, zone);
         assertEquals(1, events.stream().filter(e -> e.type.equals("lawLimit")).count()); assertEquals(1, events.stream().filter(e -> e.type.equals("victory")).count());
-        assertEquals(20000, g.timedMillisToday); assertEquals(1, g.history.size()); assertEquals(Game.QUEST_HISTORY, g.history.get(0).kind);
-        assertTrue(g.hasRunningTimers()); g.advance(now + 30000, zone); assertFalse(g.hasRunningTimers());
+        assertEquals(120000, g.timedMillisToday); assertEquals(1, g.history.size()); assertEquals(Game.QUEST_HISTORY, g.history.get(0).kind);
+        assertTrue(g.hasRunningTimers()); g.advance(now + 160000, zone); assertFalse(g.hasRunningTimers());
     }
     @Test public void multipleLawTimersExpireIndependentlyAndDeletionRemovesARunningTimer() {
         Game g = new Game(now, zone); Game.Fine a = law(g, Game.TIMED, 3, 1000), b = law(g, Game.TIMED, 3, 2000), c = law(g, Game.TIMED, 3, 3000);
@@ -85,8 +85,8 @@ public class LawAllowanceTest {
     }
     @Test public void olderSavesDefaultToStrictAndAmountUsageSurvivesRoundTrip() throws Exception {
         Game g = new Game(now, zone); Game.Fine amount = law(g, Game.AMOUNT, 4, 10000); g.useLawAmount(amount);
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now, zone); assertEquals(Game.AMOUNT, loaded.fines.get(0).mode); assertEquals(4, loaded.fines.get(0).amountLimit); assertEquals(1, loaded.fines.get(0).amountUsed);
-        org.json.JSONObject saved = GameCodec.encode(g).put("version", 13); saved.getJSONArray("fines").getJSONObject(0).remove("mode");
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone); assertEquals(Game.AMOUNT, loaded.fines.get(0).mode); assertEquals(4, loaded.fines.get(0).amountLimit); assertEquals(1, loaded.fines.get(0).amountUsed);
+        org.json.JSONObject saved = GameCodec.encodeLegacy(g).put("version", 13); saved.getJSONArray("fines").getJSONObject(0).remove("mode");
         assertEquals(Game.STRICT, GameCodec.decode(saved.toString(), now, zone).fines.get(0).mode);
     }
     @Test public void warningIsOneContinuousAlarmThatRisesAndFallsInVolume() {

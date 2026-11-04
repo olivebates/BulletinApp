@@ -5,14 +5,47 @@ import org.json.JSONObject;
 import java.time.ZoneId;
 import java.time.LocalDate;
 final class GameCodec {
-    static final int VERSION = 17;
+    static final int VERSION = 18;
+    private static int readEnergy(JSONObject o, String key) { int value = o.optInt(key, -1); return value >= Game.EXTRA && value <= Game.RELAX ? value : -1; }
     static final class FutureVersion extends JSONException {
         FutureVersion() { super("This save requires a newer app version"); }
     }
-    static JSONObject encode(Game g) throws JSONException {
+    static JSONObject json(String text) throws JSONException {
+        try { text=SaveCompression.unpack(text); } catch(java.io.IOException ex){throw new JSONException(ex.getMessage());}
+        JSONObject object=new JSONObject(text);
+        if(object.has("r")&&object.has("s")&&object.has("b")){
+            int version=Math.max(object.optInt("v"),object.optInt("version"));if(version>VERSION)throw new FutureVersion();if(version!=18)throw new JSONException("Unknown compact save version");
+            return CompactSave.expand(object);
+        }
+        return object;
+    }
+    static JSONObject encode(Game g) throws JSONException { return CompactSave.pack(encodeLegacy(g)); }
+    static JSONObject encodeLegacy(Game g) throws JSONException {
         JSONObject o = new JSONObject();
+        if (!g.briefShowTitles) o.put("briefShowTitles", false);
+        if (g.timelineHintShown) o.put("timelineHintShown", true);
+        if (g.choiceHintShown) o.put("choiceHintShown", true);
+        if (g.rearrangeVisited) o.put("rearrangeVisited", true);
+        if (g.rearrangeExitHintShown) o.put("rearrangeExitHintShown", true);
+        o.put("welcomeShown", g.welcomeShown);
+        if (g.randomModeUsedMillis > 0) o.put("randomModeUsedMillis", g.randomModeUsedMillis);
+        if (g.questCreationHintShown) o.put("questCreationHintShown", true);
+        if (g.questStartHintShown) o.put("questStartHintShown", true);
+        if (g.energyHintShown) o.put("energyHintShown", true);
+        if (g.hasCreatedCategory) o.put("hasCreatedCategory", true);
+        if (g.questAdvancedExpanded) o.put("questAdvancedExpanded", true);
+        if (!g.choiceLists.isEmpty()) {
+            JSONArray lists = new JSONArray();
+            for (Game.ChoiceList list : g.choiceLists) lists.put(new JSONObject().put("id", list.id).put("name", list.name).put("items", new JSONArray(list.items)));
+            o.put("choiceLists", lists);
+        }
+        if (!g.briefLists.isEmpty()) {
+            JSONArray lists = new JSONArray();
+            for (Game.ChoiceList list : g.briefLists) lists.put(new JSONObject().put("id", list.id).put("name", list.name).put("items", new JSONArray(list.items)));
+            o.put("briefLists", lists);
+        }
         JSONArray focus = new JSONArray();
-        for (Game.FocusEntry e : g.focus) focus.put(new JSONObject().put("id", e.id).put("name", e.name).put("day", e.day).put("millis", e.millis));
+        for (Game.FocusEntry e : g.focus) focus.put(new JSONObject().put("id", e.id).put("name", e.name).put("day", e.day).put("millis", e.millis).put("endDay",e.endDay));
         o.put("focus", focus).put("analyticsSince", g.analyticsSince);
         o.put("lastSeenAt", g.lastSeenAt).put("swipeHintShown", g.swipeHintShown).put("boardOrder", new JSONArray(g.boardOrder));
         JSONArray categories = new JSONArray();
@@ -45,21 +78,21 @@ final class GameCodec {
             o.put("session", new JSONObject().put("questId", s.questId).put("questName", s.questName)
                 .put("occurrenceDay", s.occurrenceDay).put("endsAt", s.endsAt)
                 .put("restMinutes", s.restMinutes).put("phase", s.phase)
-                .put("timed", s.timed).put("required", s.required).put("accountedAt", s.accountedAt));
+                .put("energy", s.energy < 0 ? null : s.energy).put("timed", s.timed).put("required", s.required).put("accountedAt", s.accountedAt));
             o.getJSONObject("session").put("rewardMinutes", s.rewardMinutes).put("referenceMinutes", s.referenceMinutes);
             o.getJSONObject("session").put("rewardMillis", s.rewardMillis).put("referenceMillis", s.referenceMillis);
             o.getJSONObject("session").put("bountySince", s.bountySince);
-            o.getJSONObject("session").put("restMillis", s.restMillis);
+            o.getJSONObject("session").put("restMillis", s.restMillis).put("activeMillis", s.activeMillis);
         }
         JSONArray history = new JSONArray();
         for (Game.HistoryEntry e : g.history) history.put(new JSONObject().put("kind", e.kind).put("id", e.id)
-            .put("name", e.name).put("at", e.at).put("count", e.count).put("dateOnly", e.dateOnly));
+            .put("name", e.name).put("at", e.at).put("count", e.count).put("dateOnly", e.dateOnly).put("precision",e.precision).put("bucketDay",e.bucketDay).put("endDay",e.endDay).put("coinsDelta",e.coinsDelta).put("coinsKnown",e.coinsKnown).put("energy",e.energy < 0 ? null : e.energy));
         o.put("history", history);
         JSONArray changes = new JSONArray();
-        for (Game.HistoryEntry e : g.bountyChanges) changes.put(new JSONObject().put("kind", e.kind).put("id", e.id).put("at", e.at));
+        for (Game.HistoryEntry e : g.bountyChanges) changes.put(new JSONObject().put("kind", e.kind).put("id", e.id).put("at", e.at).put("bountyMillis", e.bountyMillis > 0 ? e.bountyMillis : null));
         o.put("bountyChanges", changes);
         JSONArray balances = new JSONArray();
-        for (Game.BalancePoint point : g.balances) balances.put(new JSONObject().put("at", point.at).put("cents", point.cents).put("cause", point.cause));
+        for (Game.BalancePoint point : g.balances) balances.put(new JSONObject().put("at", point.at).put("cents", point.cents).put("cause", point.cause).put("periodStart",point.periodStart).put("periodEnd",point.periodEnd).put("opening",point.opening).put("minimum",point.minimum).put("maximum",point.maximum).put("precision",point.precision));
         o.put("balances", balances).put("balanceRangeStart", g.balanceRangeStart).put("balanceRangeEnd", g.balanceRangeEnd);
         JSONArray undo = new JSONArray();
         for (Game.UndoEntry e : g.undo) undo.put(new JSONObject().put("questId", e.questId).put("at", e.at)
@@ -72,21 +105,47 @@ final class GameCodec {
             .put("rentDifference", r.rentDifference)
             .put("ids", new JSONArray(r.ids)).put("names", new JSONArray(r.names)));
         o.put("missedReviews", reviews);
+        o.put("questTimelineStart",g.questTimelineStart).put("questTimelineEnd",g.questTimelineEnd).put("lawTimelineStart",g.lawTimelineStart).put("lawTimelineEnd",g.lawTimelineEnd).put("nextEntityId",g.nextEntityId);
         return o;
     }
 
     static Game decode(String text, long now, ZoneId zone) throws JSONException {
         Game g = new Game(now, zone);
         try { text = SaveCompression.unpack(text); } catch (java.io.IOException ex) { throw new JSONException(ex.getMessage()); }
-        if (text.isEmpty()) return g;
-        JSONObject o = new JSONObject(text);
+        if (text.isEmpty()) { g.addDemoLists(); return g; }
+        JSONObject o = json(text);
         int version = o.optInt("version", 1);
         if (version > VERSION) throw new FutureVersion();
         if (version < 1) throw new JSONException("Invalid save version");
+        JSONArray choiceLists = o.optJSONArray("choiceLists");
+        if (choiceLists != null) for (int i = 0; i < choiceLists.length(); i++) {
+            JSONObject value = choiceLists.getJSONObject(i); Game.ChoiceList list = new Game.ChoiceList();
+            list.id = value.getString("id"); list.name = value.getString("name");
+            JSONArray items = value.getJSONArray("items"); for (int n = 0; n < items.length(); n++) list.items.add(items.getString(n));
+            g.choiceLists.add(list);
+        }
+        JSONArray briefLists = o.optJSONArray("briefLists");
+        if (briefLists != null) for (int i = 0; i < briefLists.length(); i++) {
+            JSONObject value = briefLists.getJSONObject(i); Game.ChoiceList list = new Game.ChoiceList();
+            list.id = value.getString("id"); list.name = value.getString("name");
+            JSONArray items = value.getJSONArray("items");
+            for (int n = 0; n < items.length(); n++) { String category = items.getString(n); if (!BriefDictionary.category(category)) throw new JSONException("Unknown brief category"); list.items.add(category); }
+            g.briefLists.add(list);
+        }
+        g.questCreationHintShown = o.optBoolean("questCreationHintShown");
+        g.timelineHintShown = o.optBoolean("timelineHintShown");
+        g.choiceHintShown = o.optBoolean("choiceHintShown");
+        g.rearrangeVisited = o.optBoolean("rearrangeVisited");
+        g.rearrangeExitHintShown = o.optBoolean("rearrangeExitHintShown");
+        g.welcomeShown = o.optBoolean("welcomeShown", true);
+        g.questStartHintShown = o.optBoolean("questStartHintShown");
+        g.energyHintShown = o.optBoolean("energyHintShown");
+        g.questAdvancedExpanded = o.optBoolean("questAdvancedExpanded");
+        g.briefShowTitles = o.optBoolean("briefShowTitles", true);
         g.analyticsSince = o.optLong("analyticsSince", now);
         JSONArray focus = o.optJSONArray("focus");
         if (focus != null) for (int i = 0; i < focus.length(); i++) {
-            JSONObject e = focus.getJSONObject(i); g.focus.add(new Game.FocusEntry(e.getString("id"), e.getString("name"), e.getLong("day"), bound(e.getLong("millis"))));
+            JSONObject e = focus.getJSONObject(i); Game.FocusEntry entry=new Game.FocusEntry(e.getString("id"),e.getString("name"),e.getLong("day"),bound(e.getLong("millis")));entry.endDay=Math.max(entry.day,e.optLong("endDay",entry.day));g.focus.add(entry);
         }
         g.lastSeenAt = o.optLong("lastSeenAt", now);
         g.swipeHintShown = o.optBoolean("swipeHintShown", o.optInt("questsCreated") > 0);
@@ -95,6 +154,7 @@ final class GameCodec {
         JSONArray order = o.optJSONArray("boardOrder");
         if (order != null) for (int i = 0; i < order.length(); i++) g.boardOrder.add(order.getString(i));
         JSONArray categories = o.optJSONArray("categories");
+        g.hasCreatedCategory = o.optBoolean("hasCreatedCategory") || categories != null && categories.length() > 0;
         if (categories != null) for (int i = 0; i < categories.length(); i++) {
             JSONObject v = categories.getJSONObject(i); Game.Category c = new Game.Category();
             c.id = v.getString("id"); c.name = v.getString("name"); c.hue = Math.max(-1, Math.min(359, v.optInt("hue", -1))); c.collapsed = v.optBoolean("collapsed");
@@ -111,6 +171,7 @@ final class GameCodec {
         g.pendingCoins = Math.min(Math.max(0, g.coins), bound(o.optLong("pendingCoins")));
         g.timedMillisToday = bound(o.optLong("timedMillisToday"));
         g.pendingConfetti = Math.max(0, Math.min(2, o.optInt("pendingConfetti")));
+        g.randomModeUsedMillis = Math.max(0, Math.min(10001, o.optLong("randomModeUsedMillis")));
         g.randomMode = o.optBoolean("randomMode"); g.randomDay = o.optLong("randomDay", Long.MIN_VALUE);
         JSONArray selection = o.optJSONArray("randomQuestIds");
         if (selection != null) for (int i = 0; i < Math.min(2, selection.length()); i++) g.randomQuestIds.add(selection.getString(i));
@@ -124,7 +185,8 @@ final class GameCodec {
         JSONArray changes = o.optJSONArray("bountyChanges");
         if (changes != null) for (int i = 0; i < changes.length(); i++) {
             JSONObject e = changes.getJSONObject(i);
-            g.bountyChanges.add(new Game.HistoryEntry(e.getString("kind"), e.getString("id"), "", e.getLong("at")));
+            Game.HistoryEntry change = new Game.HistoryEntry(e.getString("kind"), e.getString("id"), "", e.getLong("at"));
+            change.bountyMillis = bound(e.optLong("bountyMillis")); g.bountyChanges.add(change);
         }
         g.completedToday = Math.max(0, o.optInt("completedToday"));
         g.finesToday = Math.max(0, Math.min(1000, o.optInt("finesToday")));
@@ -166,6 +228,7 @@ final class GameCodec {
         if (s != null) {
             g.session = new Game.Session();
             g.session.questId = s.getString("questId"); g.session.questName = s.getString("questName");
+            g.session.energy = readEnergy(s, "energy");
             g.session.bountySince = s.optLong("bountySince", now);
             g.session.occurrenceDay = s.getLong("occurrenceDay"); g.session.endsAt = s.getLong("endsAt");
             g.session.restMinutes = Math.max(0, Math.min(120, s.getInt("restMinutes")));
@@ -182,18 +245,20 @@ final class GameCodec {
             g.session.rewardMinutes = Math.max(0, Math.min(240, s.optInt("rewardMinutes", g.session.timed ? legacyDuration : 0)));
             g.session.rewardMillis = s.optLong("rewardMillis", -1);
             g.session.referenceMillis = s.optLong("referenceMillis", -1);
+            g.session.activeMillis = bound(s.optLong("activeMillis", g.session.timed && g.session.phase == Game.QUEST ? legacyActiveMillis(Math.max(0, g.session.endsAt - g.session.accountedAt), g.session.rewardMillis, g.session.rewardMinutes, g.session.restMillis) : 0));
         }
         JSONArray events = o.optJSONArray("history");
         if (version >= 3 && events != null) for (int i = 0; i < events.length(); i++) {
             JSONObject e = events.getJSONObject(i);
             Game.HistoryEntry entry = new Game.HistoryEntry(e.getString("kind"), e.getString("id"), e.getString("name"), e.getLong("at"));
-            entry.count = Math.max(1, e.optInt("count", 1)); entry.dateOnly = e.optBoolean("dateOnly"); g.history.add(entry);
+            entry.energy = readEnergy(e, "energy");
+            entry.count = Math.max(1,bound(e.optLong("count",1))); entry.dateOnly = e.optBoolean("dateOnly");entry.precision=e.optInt("precision");entry.bucketDay=e.optLong("bucketDay",Long.MIN_VALUE);entry.endDay=e.optLong("endDay",Long.MIN_VALUE);entry.coinsDelta=Math.max(-Game.LIMIT,Math.min(Game.LIMIT,e.optLong("coinsDelta")));entry.coinsKnown=e.optBoolean("coinsKnown");g.history.add(entry);
         }
         g.balanceRangeStart = o.optLong("balanceRangeStart", 0); g.balanceRangeEnd = o.optLong("balanceRangeEnd", 0);
         g.balances.clear();
         JSONArray points = o.optJSONArray("balances");
         if (version >= 3 && points != null) for (int i = 0; i < points.length(); i++) {
-            JSONObject p = points.getJSONObject(i); g.balances.add(new Game.BalancePoint(p.getLong("at"), p.getLong("cents"), p.optString("cause", "Historical balance update")));
+            JSONObject p = points.getJSONObject(i); g.balances.add(new Game.BalancePoint(p.getLong("at"),p.getLong("cents"),p.optString("cause","Historical balance update"),p.optLong("periodStart"),p.optLong("periodEnd"),p.optLong("opening",p.getLong("cents")),p.optLong("minimum",p.getLong("cents")),p.optLong("maximum",p.getLong("cents")),p.optInt("precision")));
         }
         if (g.balances.isEmpty()) {
             long lastSavedDayEnd = LocalDate.ofEpochDay(g.day + 1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
@@ -224,6 +289,7 @@ final class GameCodec {
         for (Game.HistoryEntry e : g.history) (e.kind.equals(Game.QUEST_HISTORY) ? knownQuests : knownLaws).add(e.id);
         g.questsCreated = Math.max(knownQuests.size(), o.optInt("questsCreated", knownQuests.size()));
         g.lawsCreated = Math.max(knownLaws.size(), o.optInt("lawsCreated", knownLaws.size()));
+        g.questTimelineStart=o.optLong("questTimelineStart");g.questTimelineEnd=o.optLong("questTimelineEnd");g.lawTimelineStart=o.optLong("lawTimelineStart");g.lawTimelineEnd=o.optLong("lawTimelineEnd");g.nextEntityId=Math.max(1,o.optLong("nextEntityId",1));
         return g;
     }
     private static void recoverTodaysRestoreHistory(Game g, ZoneId zone) {
@@ -259,7 +325,7 @@ final class GameCodec {
                 .put("interval", q.interval).put("firstDay", q.firstDay).put("questMinutes", q.questMinutes)
                 .put("remainingMillis", q.remainingMillis).put("pausedRewardMinutes", q.pausedRewardMinutes).put("pausedReferenceMinutes", q.pausedReferenceMinutes)
                 .put("pausedRewardMillis", q.pausedRewardMillis).put("pausedReferenceMillis", q.pausedReferenceMillis)
-                .put("pausedRestMillis", q.pausedRestMillis)
+                .put("pausedRestMillis", q.pausedRestMillis).put("pausedActiveMillis", q.remainingMillis > 0 ? q.pausedActiveMillis : null).put("pausedEnergy", q.pausedEnergy < 0 ? null : q.pausedEnergy)
                 .put("completedDay", q.completedDay).put("completions", q.completions)
                 .put("prerequisites", new JSONArray(q.prerequisites));
     }
@@ -275,18 +341,24 @@ final class GameCodec {
             q.remainingMillis = Math.max(-1, Math.min(480 * 60_000L, v.optLong("remainingMillis", -1)));
             q.pausedRewardMillis = v.optLong("pausedRewardMillis", -1);
             q.pausedReferenceMillis = v.optLong("pausedReferenceMillis", -1);
+            q.pausedEnergy = readEnergy(v, "pausedEnergy");
             q.pausedRestMillis = v.optLong("pausedRestMillis", q.remainingMillis > 0 ? g.restMinutes * 60_000L : -1);
             if (q.remainingMillis == 0) q.remainingMillis = -1;
             if (q.remainingMillis > 0) {
                 q.pausedRewardMinutes = Math.max(0, Math.min(240, v.optInt("pausedRewardMinutes", q.questMinutes < 0 ? g.questMinutes : q.questMinutes)));
                 q.pausedReferenceMinutes = Math.max(0, Math.min(240, v.optInt("pausedReferenceMinutes", g.questMinutes)));
             }
+            q.pausedActiveMillis = q.remainingMillis > 0 ? bound(v.optLong("pausedActiveMillis", legacyActiveMillis(q.remainingMillis, q.pausedRewardMillis, q.pausedRewardMinutes, q.pausedRestMillis))) : 0;
             q.firstDay = v.getLong("firstDay"); q.completedDay = v.getLong("completedDay");
             q.completions = v.getInt("completions");
             JSONArray lines = v.getJSONArray("prerequisites");
             for (int j = 0; j < lines.length(); j++) q.prerequisites.add(lines.getString(j));
 
         return q;
+    }
+    private static long legacyActiveMillis(long remaining, long rewardMillis, int rewardMinutes, long restMillis) {
+        long duration = rewardMillis >= 1000 ? rewardMillis : rewardMinutes > 0 ? rewardMinutes * 60000L : restMillis == 10000 ? 20000 : 0;
+        return Math.max(0, duration - remaining);
     }
     private static long bound(long n) { return Math.max(0, Math.min(Game.LIMIT, n)); }
 }

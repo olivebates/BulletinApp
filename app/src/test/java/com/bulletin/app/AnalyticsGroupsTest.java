@@ -21,11 +21,11 @@ public class AnalyticsGroupsTest {
     }
     @Test public void analyticsSectionsStartExpandedAndSaveIndependentlyFromBoardAndOtherPages() throws Exception {
         Game g = new Game(now, zone); Game.Category c = new Game.Category(); c.id = "home"; c.collapsed = true; g.addCategory(c);
-        org.json.JSONObject old = GameCodec.encode(g); old.remove("collapsedAnalyticsSections"); old.put("version", 15);
+        org.json.JSONObject old = GameCodec.encodeLegacy(g); old.remove("collapsedAnalyticsSections"); old.put("version", 15);
         Game migrated = GameCodec.decode(old.toString(), now, zone);
         assertTrue(migrated.category(c.id).collapsed); assertTrue(migrated.collapsedAnalyticsSections.isEmpty());
         migrated.collapsedAnalyticsSections.add("0:0:home");
-        Game loaded = GameCodec.decode(GameCodec.encode(migrated).toString(), now, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(migrated).toString(), now, zone);
         assertTrue(loaded.collapsedAnalyticsSections.contains("0:0:home"));
         assertFalse(loaded.collapsedAnalyticsSections.contains("0:2:home"));
         assertFalse(loaded.collapsedAnalyticsSections.contains("1:0:home"));

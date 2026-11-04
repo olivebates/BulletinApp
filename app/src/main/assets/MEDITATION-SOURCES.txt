@@ -1,0 +1,5 @@
+Meditation Bell now uses 120 original single-sentence reflections written for Bulletin at the user's request.
+They focus on returning to the present moment through sight, hearing, touch, smell, taste, breathing and ordinary activities.
+The first TSV column is an internal numeric identifier; the interface displays only the reflection text, with no label, author or attribution.
+The earlier externally attributed quotation collection has been replaced in full.
+Bell tones continue to be synthesized locally by Bulletin.

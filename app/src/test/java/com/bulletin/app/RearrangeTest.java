@@ -22,7 +22,7 @@ public class RearrangeTest {
         Game g = new Game(now, zone); Game.Quest a = quest(g, "A"), b = quest(g, "B");
         a.hue = 70; Game.Category c = new Game.Category(); c.hue = 40; g.addCategory(c); g.assignCategory(a, c.id);
         g.moveToCategoryEnd(a, "");
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone);
         Game.Quest moved = loaded.quests.get(loaded.quests.size() - 1);
         assertEquals(a.id, moved.id); assertEquals("", moved.categoryId); assertEquals(70, moved.hue);
         assertEquals(a.id, loaded.boardOrder.get(loaded.boardOrder.size() - 1));
@@ -40,7 +40,7 @@ public class RearrangeTest {
         Game g = new Game(now, zone); Game.Fine a = new Game.Fine(), b = new Game.Fine(); a.name = "A"; b.name = "B";
         g.addLaw(a); g.addLaw(b); g.incurFine(a, now);
         assertTrue(g.moveLaw(a.id, b.id)); assertFalse(g.moveLaw(a.id, a.id)); assertFalse(g.moveLaw("missing", a.id));
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone);
         assertEquals(b.id, loaded.fines.get(0).id); assertEquals(a.id, loaded.fines.get(1).id);
         assertEquals(a.id, loaded.history.get(0).id); assertEquals(1, loaded.finesToday);
     }
@@ -49,7 +49,7 @@ public class RearrangeTest {
         assertFalse(g.questRearrangeUnlocked()); assertFalse(g.lawRearrangeUnlocked());
         quest(g, "B"); assertTrue(g.questRearrangeUnlocked()); assertFalse(g.lawRearrangeUnlocked());
         g.addLaw(new Game.Fine()); g.deleteQuest(a); g.deleteLaw(law);
-        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now, zone);
+        Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now, zone);
         assertTrue(loaded.questRearrangeUnlocked()); assertTrue(loaded.lawRearrangeUnlocked());
     }
     @Test public void inactiveAppearanceIncludesFutureAndCompletedSinglesButNotRepeatableCompletions() {

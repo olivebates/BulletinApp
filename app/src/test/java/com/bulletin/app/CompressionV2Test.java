@@ -28,12 +28,12 @@ public class CompressionV2Test {
     @Test public void legacyB1AndRawJsonStillImport()throws Exception{
         String old=SaveCompression.packLegacy(json);assertTrue(old.startsWith("B1:"));assertEquals(json,SaveCompression.unpack(old));assertEquals(json,SaveCompression.unpack(json));
         Game g=new Game(1793448000000L,ZoneId.of("UTC"));Game.Quest q=new Game.Quest();q.name="Focus \ud83c\udfaf";q.firstDay=g.day;g.addQuest(q);
-        assertEquals(q.name,SaveImports.decode(SaveCompression.packLegacy(GameCodec.encode(g).toString()),1793448000000L,ZoneId.of("UTC")).quests.get(0).name);
+        assertEquals(q.name,SaveImports.decode(SaveCompression.packLegacy(GameCodec.encodeLegacy(g).toString()),1793448000000L,ZoneId.of("UTC")).quests.get(0).name);
     }
     @Test public void chooserNeverMakesTheStringLongerAndFastSavesRemainLossless()throws Exception{
         Game g=new Game(1793448000000L,ZoneId.of("UTC"));Game.Quest q=new Game.Quest();q.id="focus";q.name="Focus";q.firstDay=g.day;g.addQuest(q);
         for(int i=0;i<500;i++)g.focus.add(new Game.FocusEntry(q.id,q.name,g.day-i,60000));
-        for(String value:new String[]{json,GameCodec.encode(g).toString(),"{}","{\"long\":-9223372036854775808}"}){
+        for(String value:new String[]{json,GameCodec.encodeLegacy(g).toString(),"{}","{\"long\":-9223372036854775808}"}){
             String packed=SaveCompression.pack(value),fast=SaveCompression.packFast(value);assertTrue(packed.length()<=SaveCompression.packLegacy(value).length());assertTrue(packed.length()<=fast.length());assertEquals(value,SaveCompression.unpack(packed));assertEquals(value,SaveCompression.unpack(fast));
         }
     }
