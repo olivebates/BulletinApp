@@ -9,24 +9,26 @@ final class NotesModel {
     static final class Page {
         String id="", parent="", title="Untitled", body="", base="", remote="", move="", remoteId="", creationParent="", emoji="";
         int hue=-1;
-        boolean category, selected, excluded, hidden, conflict, loaded, unsupported, creating, named=true, collapsed=true;
+        boolean category, selected, excluded, hidden, conflict, loaded, unsupported, creating, uploadPending, named=true, collapsed=true;
         String notionId(){return id.startsWith("local-")?remoteId:id;}
         JSONObject json() throws JSONException {
             return new JSONObject().put("id",id).put("parent",parent).put("title",title)
-                .put("body",body).put("base",base).put("remote",remote).put("move",move)
+                .put("body",body).put("base",base).put("remote",remote).put("move",move).put("uploadPending",uploadPending)
                 .put("category",category).put("selected",selected).put("excluded",excluded)
                 .put("hidden",hidden).put("conflict",conflict).put("loaded",loaded).put("unsupported",unsupported)
                 .put("remoteId",remoteId).put("creating",creating).put("named",named).put("creationParent",creationParent).put("hue",hue).put("emoji",emoji).put("collapsed",collapsed);
         }
         static Page read(JSONObject j) {
             Page p=new Page(); p.id=j.optString("id");p.parent=j.optString("parent");p.title=j.optString("title","Untitled");
-            p.body=j.optString("body");p.base=j.optString("base");p.remote=j.optString("remote");p.move=j.optString("move");
+            p.body=j.optString("body");p.base=j.optString("base");p.remote=j.optString("remote");p.move=j.optString("move");p.uploadPending=j.optBoolean("uploadPending");
             p.category=j.optBoolean("category");p.selected=j.optBoolean("selected");p.excluded=j.optBoolean("excluded");
             p.hidden=j.optBoolean("hidden");p.conflict=j.optBoolean("conflict");p.loaded=j.optBoolean("loaded");p.unsupported=j.optBoolean("unsupported");p.remoteId=j.optString("remoteId");p.creating=j.optBoolean("creating");p.named=j.optBoolean("named",true);p.creationParent=j.optString("creationParent");p.hue=j.optInt("hue",-1);p.emoji=j.optString("emoji");p.collapsed=j.optBoolean("collapsed",true);return p;
         }
     }
     final LinkedHashMap<String,Page> pages=new LinkedHashMap<>();
     String parent="", trash="";
+    boolean pending(Page p){return (parent.isEmpty()||descendant(p.id,parent)||unbound(p))&&(visible(p)||pendingTrash(p))&&(p.notionId().isEmpty()||!p.named||!p.move.isEmpty()||p.uploadPending||(!p.category&&!p.body.equals(p.base)));}
+    boolean hasPending(){for(Page p:pages.values())if(pending(p))return true;return false;}
     boolean visible(Page p) {
         if(p.id.equals(parent)||reserved(p)||(!parent.isEmpty()&&!descendant(p.id,parent)&&!unbound(p)))return false;
         Set<String> seen=new HashSet<>(); boolean chosen=false;

@@ -16,6 +16,7 @@ public final class GameStore {
     public long revision;
     public String warning;
     private final SharedPreferences preferences;
+    private final SharedPreferences videoCheckpoints;
     private String lastValidSave = "";
     private boolean readOnly;
     private long saveGeneration;
@@ -54,6 +55,7 @@ public final class GameStore {
     @android.annotation.SuppressLint("ApplySharedPref") // Preserve the original migration snapshot before writing a new schema.
     public GameStore(Context context) {
         preferences = context.getSharedPreferences("bulletin", Context.MODE_PRIVATE);
+        videoCheckpoints=context.getSharedPreferences("youtube-checkpoints",Context.MODE_PRIVATE);
         Game loaded;
         try {
             lastValidSave = preferences.getString("state", "");
@@ -92,6 +94,7 @@ public final class GameStore {
             }
         }
         game = loaded;
+        YoutubePlaybackService.restoreCheckpoint(context,game);
         sounds = new Synth(context);
         applySoundVolume();
         try { archive = BackupArchive.decode(preferences.getString("backup_archive", "[]")); }
@@ -203,6 +206,7 @@ public final class GameStore {
         HistoryAggregation.aggregate(candidate,ZoneId.systemDefault());candidate.aggregationDay=candidate.day;
         // Validation must finish before creating a backup or touching current progress.
         String encoded = SaveCompression.pack(GameCodec.encode(candidate).toString());
+        if(YoutubePlaybackService.active!=null)YoutubePlaybackService.active.stopPlayback();
         sync();
         if (!backupNow(reason)) throw new java.io.IOException("Could not back up current progress. Nothing was restored.");
         String previous = preferences.getString("state", "");
@@ -210,7 +214,7 @@ public final class GameStore {
             throw new java.io.IOException("Could not save restored progress");
         notices.clear(); lawWarningStarts.clear();
         saveGeneration++; compressionHandler.removeCallbacksAndMessages(null);
-        game = candidate;applySoundVolume();lastValidSave = encoded; readOnly = false; revision++;
+        videoCheckpoints.edit().clear().commit();game = candidate;applySoundVolume();lastValidSave = encoded; readOnly = false; revision++;
     }
     private void refineSave(String json, String saved, long generation) {
         compressionHandler.removeCallbacksAndMessages(null);

@@ -131,7 +131,7 @@ public final class MainActivity extends Activity {
             if (!resumed) return;
             accountRandomUsage();
             store.sync();
-            if (completingCard || completionCelebrating || boardDragId != null) { ticker.postDelayed(this, 250); return; }
+            if (completingCard || completionCelebrating || boardDragId != null) { ticker.postDelayed(this, 1000); return; }
             if (renderedRevision != store.revision && tab != 2 && tab != 3) render();
             if (tab == 2 && balanceGraph != null && renderedRevision != store.revision) {
                 balanceGraph.invalidate(); renderedRevision = store.revision;
@@ -146,7 +146,7 @@ public final class MainActivity extends Activity {
                 store.save(); renderedRevision = store.revision;
                 flight.rain(celebration > 1);
             }
-            ticker.postDelayed(this, 250);
+            ticker.postDelayed(this, 1000);
         }
     };
 
@@ -182,7 +182,20 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);setIntent(intent);
-        if(intent.hasExtra("navigateTab")){activeTimeRevealed=false;tab=Math.max(0,Math.min(3,intent.getIntExtra("navigateTab",0)));questTimelines=false;fineTimelines=false;if(tab==3&&intent.getBooleanExtra("toolsHome",false))toolsPage=0;intent.removeExtra("navigateTab");intent.removeExtra("toolsHome");store.sync();render();}
+        if(intent.hasExtra("navigateTab")){activeTimeRevealed=false;tab=Math.max(0,Math.min(3,intent.getIntExtra("navigateTab",0)));questTimelines=false;fineTimelines=false;if(tab==3&&intent.getBooleanExtra("toolsHome",false))toolsPage=0;intent.removeExtra("navigateTab");intent.removeExtra("toolsHome");store.sync();render();restoreNotesTool();}
+    }
+    private boolean openingNotes;
+    private boolean restoreNotesTool(){
+        if(!resumed||tab!=3)return false;
+        android.content.SharedPreferences nav=getSharedPreferences("tool-navigation",0);
+        Intent intent=null;
+        if(nav.getBoolean("youtube-open",false)){
+            String id=nav.getString("youtube-video","");
+            intent=new Intent(this,id.isEmpty()?YoutubeLibraryActivity.class:YoutubePlayerActivity.class);
+            if(!id.isEmpty())intent.putExtra("id",id);
+        }else if(nav.getBoolean("notes-open",false))intent=new Intent(this,NotesActivity.class);
+        if(intent==null)return false;
+        if(!openingNotes){openingNotes=true;startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION),android.app.ActivityOptions.makeCustomAnimation(this,0,0).toBundle());}return true;
     }
     private boolean navigateBack() {
         if (tab == 3 && toolsPage == 1 && toolNamesArrange[toolsTool]) { toolNamesArrange[toolsTool] = false; render(); return true; }
@@ -194,7 +207,7 @@ public final class MainActivity extends Activity {
             questTimelines = false; fineTimelines = false; boardScrollY = 0; render(); return true;
         }
         if (tab != 0) {
-            store.sync(); tab = 0; boardScrollY = 0; render(); return true;
+            if(tab==3)NotesSyncJob.schedule(this);store.sync(); tab = 0; boardScrollY = 0; render(); return true;
         }
         return false;
     }
@@ -220,10 +233,10 @@ public final class MainActivity extends Activity {
         out.putBoolean("moreOptionsExpanded", moreOptionsExpanded);
         out.putInt("toolsPage", toolsPage); out.putString("choiceListId", choiceListId); out.putInt("tab", tab); out.putBoolean("questTimelines", questTimelines); out.putBoolean("fineTimelines", fineTimelines); super.onSaveInstanceState(out);
     }
-    @Override protected void onStart() { super.onStart(); store.appOpened(); }
-    @Override protected void onStop() { store.appClosed(); super.onStop(); }
+    @Override protected void onStart() { super.onStart(); }
+    @Override protected void onStop() { super.onStop(); }
     @Override protected void onResume() {
-        super.onResume(); resumed = true;
+        super.onResume(); resumed = true;if(restoreNotesTool())return;
         store.lawWarningListener = () -> {
             if (!resumed) return;
             if (renderedRevision != store.revision && boardDragId == null && !completingCard && tab != 2 && tab != 3) render();
@@ -248,7 +261,7 @@ public final class MainActivity extends Activity {
         stopBoardDragScroll();
         store.lawWarningListener = null; cancelLawImpacts();
         if (pasteNotice != null) pasteNotice.dismiss();
-        resumed = false; accountRandomUsage();
+        resumed = false;openingNotes=false; accountRandomUsage();
         if (deathPlaying) { deathPlaying = false; deathReviewShown = null; }
         if (boardDragId != null) { if (dragArrangement != null) dragArrangement.restore(game); boardDragId = null; draggingCategory = false; boardMovePending = false; store.save(); }
         completingCard = false; completionCelebrating = false;
@@ -265,6 +278,7 @@ public final class MainActivity extends Activity {
         if (dialog != null) dialog.dismiss();
         super.onDestroy();
     }
+    @Override public void finish(){if(isTaskRoot()&&YoutubePlaybackService.active!=null)YoutubePlaybackService.active.stopPlayback();super.finish();}
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration); render();
         if (dialog != null && dialog.isShowing()) { if (dialog == emojiMenu) fitEmojiMenu(dialog); else if (dialog == briefPicker) fitBriefPicker(dialog); else fitDialog(dialog); }
@@ -1280,7 +1294,7 @@ public final class MainActivity extends Activity {
             item.setBackground(ui.button(tab == index ? ui.text : ui.border));
             item.setFocusable(true); item.setContentDescription(labels[i]); item.setSelected(tab == index);
             TextView label = text(labels[i], 9, tab == index ? ui.text : ui.muted); label.setGravity(Gravity.CENTER); item.addView(label);
-            item.setOnClickListener(v -> { if (tab != index || index == 3 && toolsPage > 0) { if (briefEditor != null) briefEditor.freezeState(); if (choiceEditor != null) choiceEditor.freezeState(); hideKeyboard(); store.sync(); questTimelines = false; fineTimelines = false; if (tab == 3 && index == 3) toolsPage = 0; activeTimeRevealed=false;tab = index; render(); } });
+            item.setOnClickListener(v -> { if (tab != index || index == 3 && toolsPage > 0) { if (briefEditor != null) briefEditor.freezeState(); if (choiceEditor != null) choiceEditor.freezeState(); hideKeyboard(); store.sync(); questTimelines = false; fineTimelines = false; if (tab == 3 && index == 3) toolsPage = 0; if(tab==3&&index!=3)NotesSyncJob.schedule(this);activeTimeRevealed=false;tab = index; render();restoreNotesTool(); } });
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ui.dp(32), .65f);
             bar.addView(item, p);
         }
@@ -2485,4 +2499,5 @@ public final class MainActivity extends Activity {
         if (view != null) ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(view.getWindowToken(), 0);
     }
 }
+
 

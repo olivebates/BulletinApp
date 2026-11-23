@@ -21,10 +21,12 @@ final class NotesStore {
     final Context context;
     final ExecutorService worker=Executors.newSingleThreadExecutor();
     NotesModel model=new NotesModel();
-    volatile String status="Connect to Notion using Sync";
+    volatile String status="";
+    volatile String schedulingError="";
     volatile boolean busy;
+    volatile boolean invalidNotes;
     boolean readOnly;
-    private boolean syncAgain;
+    private final List<Runnable> syncCallbacks=new ArrayList<>();
     private final AtomicFile file;
     private boolean damaged;
     private NotesStore(Context c){context=c;file=new AtomicFile(new File(c.getFilesDir(),"notes.json"));if(file.getBaseFile().exists())try{model=NotesModel.read(new String(file.readFully(),java.nio.charset.StandardCharsets.UTF_8));}catch(Exception e){damaged=true;status="Notes storage could not be read. Original data has been preserved.";}}
@@ -36,12 +38,31 @@ final class NotesStore {
     void token(String value)throws Exception {Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.ENCRYPT_MODE,key());String encrypted=Base64.encodeToString(c.getIV(),Base64.NO_WRAP)+":"+Base64.encodeToString(c.doFinal(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)),Base64.NO_WRAP);if(!context.getSharedPreferences("notes-auth",0).edit().putString("token",encrypted).commit())throw new IOException("Could not store connection");}
     String token()throws Exception {String value=context.getSharedPreferences("notes-auth",0).getString("token","");if(value.isEmpty())return "";String[] a=value.split(":");Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Base64.decode(a[0],Base64.NO_WRAP)));return new String(c.doFinal(Base64.decode(a[1],Base64.NO_WRAP)),java.nio.charset.StandardCharsets.UTF_8);}
     boolean connected(){return context.getSharedPreferences("notes-auth",0).contains("token");}
+    synchronized boolean canUpload() {
+        return !damaged && connected() && !model.parent.isEmpty() && model.hasPending();
+    }
+
+    synchronized String displayStatus() {
+        if (damaged) return status;
+        if (!connected()) return "Connect to Notion using Sync";
+        if (model.parent.isEmpty()) return "Choose a Notion destination in Settings.";
+        if (busy) return "Uploading notes to Notion...";
+        if (!schedulingError.isEmpty() && model.hasPending()) return schedulingError;
+        if (!status.isEmpty() && !status.equals("Synced")) return status;
+        if (!model.hasPending()) return "";
+        if (NotesSyncJob.isQueued(context)) {
+            return NotesSyncJob.isOnline(context)
+                ? "Notes upload queued." : "Notes upload waiting for internet.";
+        }
+        return "Notes changes saved. Upload when you leave Tools.";
+    }
     synchronized void edit(String id,String body){NotesModel.Page p=model.pages.get(id);p.body=body;save();}
     void sync(Runnable done){
-        synchronized(this){if(busy||damaged){if(busy)syncAgain=true;if(done!=null)done.run();return;}busy=true;}
+        synchronized(this){if(damaged||model.parent.isEmpty()||!model.hasPending()){if(done!=null)done.run();return;}if(done!=null)syncCallbacks.add(done);if(busy)return;busy=true;invalidNotes=false;}
         worker.execute(()->{try{String token=token();if(token.isEmpty())return;status="Syncing…";NotionClient api=new NotionClient(token);syncWith(api);status="Synced";}
+            catch(NotesSync.InvalidNotes e){invalidNotes=true;status=e.getMessage();}
             catch(Exception e){status=e.getMessage()==null?"Sync failed; local changes are saved":e.getMessage();}
-            finally{boolean repeat;synchronized(this){busy=false;repeat=syncAgain;syncAgain=false;}if(done!=null)done.run();if(repeat)sync(null);}});
+            finally{List<Runnable> callbacks;synchronized(this){busy=false;callbacks=new ArrayList<>(syncCallbacks);syncCallbacks.clear();}for(Runnable callback:callbacks)callback.run();}});
     }
     private void syncWith(NotionClient api)throws Exception {new NotesSync(model,this,this::save).run(api);}
     synchronized NotesModel.Page create(String parent,String title,boolean category){NotesModel.Page p=model.create(parent,title,category);save();return p;}

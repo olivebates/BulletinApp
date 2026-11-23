@@ -11,6 +11,24 @@ class NotionClient {
     final String token;
     private long lastRequest;
     NotionClient(String token){this.token=token;}
+    static final class RejectedRequest extends IOException {
+        final int status;
+        RejectedRequest(int status, String message) {
+            super("Notion " + status + ": " + message);
+            this.status = status;
+        }
+    }
+
+    static RejectedRequest rejection(int status, String response) {
+        String message = "";
+        try {
+            message = new JSONObject(response).optString("message").trim();
+        } catch (JSONException ignored) {
+            // Proxies and empty responses may not contain a Notion error object.
+        }
+        if (message.isEmpty()) message = "Request failed. Local changes are saved.";
+        return new RejectedRequest(status, message.substring(0, Math.min(500, message.length())));
+    }
     JSONObject request(String method,String path,JSONObject body)throws Exception {
         long delay=350-(System.currentTimeMillis()-lastRequest);if(delay>0)Thread.sleep(delay);lastRequest=System.currentTimeMillis();
         HttpURLConnection c=(HttpURLConnection)new URL("https://api.notion.com/v1/"+path).openConnection();
@@ -21,7 +39,7 @@ class NotionClient {
             if(body!=null){c.setDoOutput(true);try(OutputStream out=c.getOutputStream()){out.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
             int status=c.getResponseCode();InputStream stream=status<400?c.getInputStream():c.getErrorStream();
             String value="";if(stream!=null)try(InputStream in=stream;ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);value=out.toString("UTF-8");}
-            if(status>=400)throw new IOException("Notion "+status+": "+(status==401?"Check your connection token.":status==403?"Share the page with your connection and allow read, insert and update content.":status==429?"Rate limit reached; changes will retry later.":"Request failed; local changes are saved."));
+            if(status>=400)throw rejection(status,value);
             return new JSONObject(value);
         } finally {c.disconnect();}
     }
@@ -51,10 +69,17 @@ class NotionClient {
         return request("PATCH","pages/"+id+"/markdown",q);
     }
     String create(String parent,String title)throws Exception {
-        JSONObject q=new JSONObject().put("parent",new JSONObject().put("page_id",parent)).put("properties",new JSONObject().put("title",new JSONObject().put("type","title").put("title",new JSONArray().put(new JSONObject().put("type","text").put("text",new JSONObject().put("content",title))))));
+        JSONObject q=titlePayload(title).put("parent",new JSONObject().put("page_id",parent));
         return request("POST","pages",q).getString("id");
     }
     void move(String id,String parent)throws Exception{request("POST","pages/"+id+"/move",new JSONObject().put("parent",new JSONObject().put("type","page_id").put("page_id",parent)));}
-    void rename(String id,String title)throws Exception{request("PATCH","pages/"+id,new JSONObject().put("properties",new JSONObject().put("title",new JSONObject().put("title",new JSONArray().put(new JSONObject().put("text",new JSONObject().put("content",title)))))));}
+    void rename(String id,String title)throws Exception{request("PATCH","pages/"+id,titlePayload(title));}
+    private static JSONObject titlePayload(String title)throws JSONException {
+        JSONObject text = new JSONObject().put("type", "text")
+            .put("text", new JSONObject().put("content", title));
+        JSONObject property = new JSONObject().put("type", "title")
+            .put("title", new JSONArray().put(text));
+        return new JSONObject().put("properties", new JSONObject().put("title", property));
+    }
     static String title(JSONObject p){JSONObject props=p.optJSONObject("properties");if(props!=null)for(Iterator<String> it=props.keys();it.hasNext();){JSONObject v=props.optJSONObject(it.next());if(v!=null&&"title".equals(v.optString("type"))){JSONArray a=v.optJSONArray("title");StringBuilder s=new StringBuilder();if(a!=null)for(int i=0;i<a.length();i++)s.append(a.optJSONObject(i).optString("plain_text"));return s.length()==0?"Untitled":s.toString();}}return "Untitled";}
 }

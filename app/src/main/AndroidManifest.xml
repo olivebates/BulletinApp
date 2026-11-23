@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -25,7 +26,8 @@
         <service android:name=".NotesSyncJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
         <activity android:name=".PdfLibraryActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity android:name=".YoutubeLibraryActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" />
-        <activity android:name=".YoutubePlayerActivity" android:exported="false" />
+        <activity android:name=".YoutubePlayerActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" android:launchMode="singleTop" />
+        <service android:name=".YoutubePlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <receiver android:name=".MustDoReminder" android:exported="false" />
         <activity android:name=".PdfReaderActivity" android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />

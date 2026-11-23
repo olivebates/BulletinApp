@@ -16,7 +16,7 @@ final class NotionBackups {
     static final String PAGE="BulletinBackupCodes", PREFIX="Bulletin backup | ";
     final BulletinApplication app;
     final Handler main=new Handler(Looper.getMainLooper());
-    boolean running;
+    boolean running; long nextAttempt;
     int started;
     String status="";
     NotionBackups(BulletinApplication app){this.app=app;}
@@ -24,12 +24,12 @@ final class NotionBackups {
     void start(){started++;main.removeCallbacks(tick);main.post(tick);}
     void stop(){started=Math.max(0,started-1);if(started==0)main.removeCallbacks(tick);}
     private final Runnable tick=new Runnable(){public void run(){if(started==0)return;check();main.postDelayed(this,60000);}};
-    void check(){NotesStore notes=NotesStore.get(app);long last=app.getSharedPreferences("notion-backups",0).getLong("last-"+notes.model.parent,0);if(notes.connected()&&!notes.model.parent.isEmpty()&&due(System.currentTimeMillis(),last)&&!running)backup("",null);}
+    void check(){NotesStore notes=NotesStore.get(app);long last=app.getSharedPreferences("notion-backups",0).getLong("last-"+notes.model.parent,0);if(notes.connected()&&!notes.model.parent.isEmpty()&&due(System.currentTimeMillis(),last)&&!running&&android.os.SystemClock.elapsedRealtime()>=nextAttempt)backup("",null);}
     interface Result {void done(Exception error);}
     void backup(String protect,Result callback){
         if(running){if(callback!=null)callback.done(new IOException("A backup is already running. Try again shortly."));return;}
         String snapshot;try{snapshot=app.store().exportSave();}catch(Exception e){if(callback!=null)callback.done(e);return;}
-        running=true;status="Backing up…";
+        running=true;nextAttempt=android.os.SystemClock.elapsedRealtime()+15*60*1000L;status="Backing up…";
         NotesStore notes=NotesStore.get(app);
         String root; synchronized(notes){root=notes.model.parent;}
         notes.worker.execute(()->{Exception error=null;try{NotionClient api=new NotionClient(notes.token());String page=page(api,root);long now=System.currentTimeMillis();String title=PREFIX+now+" | "+UUID.randomUUID();

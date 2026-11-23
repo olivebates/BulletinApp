@@ -7,8 +7,8 @@ android {
         applicationId 'com.bulletin.app'
         minSdk 26
         targetSdk 36
-        versionCode 95
-        versionName '1.94'
+        versionCode 100
+        versionName '1.99'
         testInstrumentationRunner 'com.bulletin.app.NotesEditorInstrumentation'
     }
     compileOptions {
@@ -21,6 +21,7 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
     implementation 'org.tukaani:xz:1.12'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'

@@ -1,10 +1,14 @@
-﻿# Bulletin for Android 1.94
+﻿# Bulletin for Android 1.96
+
+Version 1.96 hides beige text and Find Beige in read-only mode and queues only changed Notes documents for Notion on leaving Tools or backgrounding the app. Network failures retry automatically. YouTube playback now has a persistent browser service, notification controls, saved video/list navigation, and small position checkpoints; removing Bulletin from recent apps stops playback. Battery work removes repeated whole-library Notion uploads, once-per-second full game saves during video playback, redundant internal-navigation backups, and unnecessary UI/countdown polling. See [playback and battery behavior](docs/playback.md).
+
+Version 1.95 makes Find Beige show only passage text and groups consecutive beige text across headings, formatting and line breaks. Non-beige text, including an uncolored heading, splits results. Beige is now the darker warm #C4A06A. The formatting button removes beige when every selected word is already beige; mixed selections become entirely beige. Removing color preserves other formatting and surrounding beige. Returning to Tools restores the Notes screen and its open note; Back from the notes list or tapping Tools inside Notes opens the tools menu.
 
 Version 1.94 adds note creation emojis and category colors, a menu-only read-only toggle, persistent note locations, sticky Find, numbered lists, beige text and Find Beige results with return navigation. Notion notes now upload one way: app content replaces remote edits and app deletions archive their Notion counterparts. Notes drag previews animate neighboring rows.
 
 Bulletin hides active time behind Tap to show until tapped, resets that reveal when leaving the tab, halves single-task bounties for existing and new tasks, and defers tool reward animations until Bulletin opens. An on-device reminder is scheduled for 20:00 local time when must-do tasks remain; notification permission is required, and Android may delay delivery during battery-saving modes. Boot and clock changes reschedule the alarm.
 
-Tools now includes Youtube Bookmark, with a PDF-style library, automatic video titles, rename/delete/reorder controls, a video-only player with Back and bottom navigation, and playback positions included in the main save and Notion app-save backups. Playback pauses when leaving. Separate advertising endpoints are filtered; ads delivered through the video stream are not guaranteed to be blocked. Live playback and ad filtering require network/device verification.
+Tools now includes Youtube Bookmark, with a PDF-style library, automatic video titles, rename/delete/reorder controls, a video-only player with Back and bottom navigation, and playback positions included in the main save and Notion app-save backups. Playback continues when leaving its screen; see the 1.96 playback notes for verification and limitations. Separate advertising endpoints are filtered; ads delivered through the video stream are not guaranteed to be blocked. Live playback and ad filtering require network/device verification.
 
 Version 1.86 adds **Tools → Notes**, with nested Notion documents, local drafts, background sync, conflict choices, and a Notion Trash page. See [Notes setup and behavior](docs/notes.md) for connection instructions and current limitations.
 
@@ -38,7 +42,7 @@ This workspace also has a portable toolchain:
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
 
-The APK is `app/build/outputs/apk/debug/app-debug.apk` (version code 95, version name 1.94), also copied to `Bulletin-1.94.apk`. **Install over the existing app to retain progress.** Keep the same package ID (`com.bulletin.app`) and signing key. The build helper reuses `.tooling/android-user/debug.keystore`; retain that key when moving the workspace.
+The APK is `app/build/outputs/apk/debug/app-debug.apk` (version code 97, version name 1.96), also copied to `Bulletin-1.96.apk`. **Install over the existing app to retain progress.** Keep the same package ID (`com.bulletin.app`) and signing key. The build helper reuses `.tooling/android-user/debug.keystore`; retain that key when moving the workspace.
 
 ```powershell
 adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -88,19 +92,7 @@ Victory, rest, reward and failure sounds are synthesized locally. Reward coins l
 
 ## Verification
 
-Version 1.94 passes all **380 unit tests** and **56 Android emulator assertions** for Notes UI, formatting, read-only mode, Find and beige-result navigation. Android lint reports **0 errors and 8 warnings**. The debug APK is built with the existing package and signing configuration. Live Notion round trips, YouTube playback/ad behavior, and delivery of the evening notification on a physical device have not been verified.
-
-## Bounty caps, minimum fines and Must Do editing (1.80)
-
-The hourly waiting rate remains 1.2%, but its maximum extra reward is halved from +600% to +300%, making the total cap four times the baseline. Must Do rewards are exactly double the matching optional reward after rounding and waiting growth. This includes active/paused tasks and category-required tasks. Singles retain the optional 30% baseline before doubling. Accepted durations and historical reward/refund amounts are preserved; required focus still does not increase the base bounty.
-
-Both law reports and missed Must Do/category slots have a EUR3.00 minimum per offense, including at zero/negative balances. Initial 10% charges still apply when higher; the existing 10% escalation continues for repeat law offenses and successive missed slots. Fines can create debt independently of rent's debt floor. Midnight settlement and missed-task correction preserve actual charges, interest and rent differences.
-
-An existing category's Required Tasks field, All control and Must Do checkbox remain locked until its daily target is fulfilled or three qualifying completions have been counted, whichever comes first. Numeric quotas use their existing completion count; All quotas use distinct completed tasks. New, optional, empty and zero-quota categories remain configurable. A task's own Must Complete checkbox cannot be cleared before that task is completed today. Names, colors and other unrelated edits remain available. Save-time checks enforce the same restrictions.
-
-Blocked attempts retain the original values and show exactly: "You must complete the Must Do quests before you can change this." Eligibility persists across relaunches and resets with the day.
-
-Validation: all 333 unit tests pass, APK assembly succeeds, and lint has 0 errors with 7 existing warnings. Emulator checks covered each locked category control, the exact popup, retaining an unfinished task's Must Complete flag, unlocking category amounts after three completions, and displayed EUR0.60 required-single rewards/EUR3.00 law minimums.
+Version 1.96 validation is documented in [playback and battery behavior](docs/playback.md). Live Notion round trips, battery consumption on physical hardware, and Samsung Android 15 playback remain unverified.
 
 The final emulator check also verified saving a completed task with Must Complete removed. Category headings now have an explicit 32 dp height so removing the last standalone Must Do cannot stretch a category heading over the task list.
 
@@ -139,5 +131,6 @@ Both hold circles now use the largest radius that fits the window with a 12 dp m
 The daily hold circle stays centered on its checkbox and can extend below the window. Its maximum radius is 20% smaller than in 1.84. Must Do circle fitting and continuous confetti retain their existing behavior.
 
 Validation: APK assembly, unit tests and lint pass (0 errors, 7 existing warnings).
+
 
 

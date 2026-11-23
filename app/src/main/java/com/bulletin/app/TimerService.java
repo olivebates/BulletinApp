@@ -21,14 +21,22 @@ public final class TimerService extends Service {
         @Override public void run() {
             store.sync();
             if (!store.game.hasRunningTimers()) {
+                if(wakeLock.isHeld())wakeLock.release();
                 handler.postDelayed(() -> { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); }, 2200);
                 return;
             }
             keepAwake();
             getSystemService(NotificationManager.class).notify(1, notification());
-            handler.postDelayed(this, 1000);
+            handler.postDelayed(this, nextTickDelay());
         }
     };
+    private long nextTickDelay(){
+        if(getSystemService(PowerManager.class).isInteractive())return 1000;
+        long delay=60000,now=System.currentTimeMillis();
+        Game.Session s=store.game.session;if(s!=null&&(s.timed||s.phase==Game.REST))delay=Math.min(delay,s.endsAt-now);
+        Game.Fine law=store.game.nextRunningLaw();if(law!=null)delay=Math.min(delay,law.remaining(now));
+        return Math.max(1000,delay);
+    }
     @Override public void onCreate() {
         super.onCreate();
         store = ((BulletinApplication) getApplication()).store();

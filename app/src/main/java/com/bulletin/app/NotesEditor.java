@@ -20,6 +20,7 @@ final class NotesEditor extends WebView {
     private String markdown;
     private int position,scroll;
     private boolean ready,enabled;
+    private boolean disposing,released;
     private int pendingBeige=-1;
     void toggleFind(){if(ready)evaluateJavascript("toggleFind()",null);}
     void jumpBeige(int index){pendingBeige=index;if(ready)evaluateJavascript("jumpBeige("+index+")",null);}
@@ -43,7 +44,20 @@ final class NotesEditor extends WebView {
         if(!markdown.equals(value)){markdown=value;if(ready)evaluateJavascript("replaceDocument("+JSONObject.quote(value)+")",null);}
         if(ready)evaluateJavascript("setEditable("+editable+")",null);
     }
-    void flush(){if(ready)evaluateJavascript("flush()",null);}
+    void flush(){flush(null);}
+    @Override public void destroy(){
+        if(disposing)return;disposing=true;
+        android.os.Handler cleanup=new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable release=()->{if(!released){released=true;removeJavascriptInterface("Native");super.destroy();}};
+        cleanup.postDelayed(release,1000);flush(()->{cleanup.removeCallbacks(release);release.run();});
+    }
+    void flush(Runnable done){
+        if(!ready){if(done!=null)done.run();return;}
+        evaluateJavascript("({markdown:markdown(),cursor:caret(),scroll:Math.round(scrollY)})",value->{
+            try{JSONObject snapshot=new JSONObject(value);String body=snapshot.getString("markdown");savePosition(snapshot.optInt("cursor"),snapshot.optInt("scroll"));if(!markdown.equals(body)){markdown=body;listener.changed(body);}}catch(Exception ignored){}
+            if(done!=null)done.run();
+        });
+    }
     private void savePosition(int cursor,int y){position=cursor;scroll=y;activity.getSharedPreferences("notes-editor",0).edit().putInt(id+"-cursor",cursor).putInt(id+"-scroll",y).apply();}
     private final class Bridge {
         @JavascriptInterface public void ready(){activity.runOnUiThread(()->{ready=true;load();applyDisplaySize();if(pendingBeige>=0)evaluateJavascript("setTimeout(()=>jumpBeige("+pendingBeige+"),150)",null);});}

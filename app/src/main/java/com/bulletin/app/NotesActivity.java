@@ -25,21 +25,27 @@ public final class NotesActivity extends ToolScreen {
     private NotesEditor editor;
     private EditText documentTitle;
     private boolean refreshingTitle;
-    private boolean keyboardOpen;
+    private boolean keyboardOpen,leavingTools;
     private final List<View> bottomRows=new ArrayList<>();
     private TextView syncStatus;
-    private final Runnable delayedSync=()->sync(false);
-    private final Runnable periodic=new Runnable(){public void run(){sync(false);handler.postDelayed(this,30000);}};
-    private final Runnable syncIndicator=new Runnable(){public void run(){if(!notesResumed||isFinishing()||isDestroyed()||!editing.isEmpty())return;updateSyncStatus();handler.postDelayed(this,300);}};
-    @Override public void onCreate(Bundle state){super.onCreate(state);store=NotesStore.get(this);android.content.SharedPreferences saved=getSharedPreferences("notes-location",0);editing=saved.getString("editing","");listScrollY=saved.getInt("scroll",0);beigeResults=saved.getBoolean("beige",false);returnToBeige=saved.getBoolean("returnBeige",false);beigeScrollY=saved.getInt("beigeScroll",0);if(state!=null){editing=state.getString("editing","");arranging=state.getBoolean("arranging");listScrollY=state.getInt("listScrollY");ArrayList<String> a=state.getStringArrayList("expanded");if(a!=null)expanded.addAll(a);}build();NotesSyncJob.schedule(this);if(Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::back);sync(false);}
-    private void sync(boolean picker){store.sync(()->runOnUiThread(()->{if(isFinishing()||isDestroyed())return;if(editing.isEmpty()){if(dialog==null&&dragId.isEmpty())build();}else refreshEditor();updateSyncStatus();}));updateSyncStatus();}
-    private void updateSyncStatus(){if(syncStatus==null||!editing.isEmpty())return;boolean syncing=store.busy&&store.connected();String status=syncing?"Syncing...":store.status;boolean visible=syncing||(!status.equals("Synced")&&!status.startsWith("Syncing")&&!status.isEmpty());if(!status.contentEquals(syncStatus.getText()))syncStatus.setText(status);int visibility=visible?View.VISIBLE:View.GONE;if(syncStatus.getVisibility()!=visibility)syncStatus.setVisibility(visibility);}
+    
+    
+    private final Runnable syncIndicator=new Runnable(){public void run(){if(!notesResumed||isFinishing()||isDestroyed()||!editing.isEmpty())return;updateSyncStatus();if(store.busy)handler.postDelayed(this,1000);}};
+    @Override public void onCreate(Bundle state){super.onCreate(state);store=NotesStore.get(this);getSharedPreferences("tool-navigation",0).edit().putBoolean("notes-open",true).putBoolean("youtube-open",false).apply();android.content.SharedPreferences saved=getSharedPreferences("notes-location",0);editing=saved.getString("editing","");listScrollY=saved.getInt("scroll",0);beigeResults=saved.getBoolean("beige",false);returnToBeige=saved.getBoolean("returnBeige",false);beigeScrollY=saved.getInt("beigeScroll",0);if(state!=null){editing=state.getString("editing","");arranging=state.getBoolean("arranging");listScrollY=state.getInt("listScrollY");ArrayList<String> a=state.getStringArrayList("expanded");if(a!=null)expanded.addAll(a);}build();if(Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::back);sync(false);}
+    private void sync(boolean picker){updateSyncStatus();}
+    private void updateSyncStatus(){
+        if(syncStatus==null||!editing.isEmpty())return;
+        String message=store.displayStatus();
+        if(!message.contentEquals(syncStatus.getText()))syncStatus.setText(message);
+        syncStatus.setVisibility(message.isEmpty()?View.GONE:View.VISIBLE);
+    }
+    @Override void leavingToolsTab(){if(editor==null)super.leavingToolsTab();}
     private void build(){
         if(scroll!=null&&scroll.isAttachedToWindow()&&editor==null&&!restoringScroll)listScrollY=scroll.getScrollY();
         synchronized(store){expanded.clear();for(NotesModel.Page p:store.model.pages.values())if(p.category&&!p.collapsed)expanded.add(p.id);}
         documentTitle=null;scroll=null;bottomRows.clear();root.removeAllViews();if(editor!=null){editor.flush();editor.destroy();editor=null;}syncStatus=text(store.status,12);
         synchronized(store){if(!editing.isEmpty()){NotesModel.Page p=store.model.pages.get(editing);if(p!=null){buildEditor(p);return;}editing="";}}
-        if(beigeResults){buildBeige();return;}title("Notes");root.addView(syncStatus);updateSyncStatus();handler.removeCallbacks(syncIndicator);handler.post(syncIndicator);
+        if(store.readOnly){beigeResults=false;returnToBeige=false;}if(beigeResults){buildBeige();return;}title("Notes");root.addView(syncStatus);updateSyncStatus();handler.removeCallbacks(syncIndicator);handler.post(syncIndicator);
         scroll=new ScrollView(this);scroll.setFillViewport(arranging);scroll.setClipToPadding(false);
         if(arranging){scroll.setVerticalScrollBarEnabled(true);scroll.setHorizontalScrollBarEnabled(false);scroll.setVerticalScrollbarPosition(View.SCROLLBAR_POSITION_RIGHT);scroll.setScrollBarSize(ui.dp(30));scroll.setScrollbarFadingEnabled(false);scroll.setScrollBarStyle(View.SCROLLBARS_INSIDE_INSET);
             if(Build.VERSION.SDK_INT>=29){android.graphics.drawable.GradientDrawable thumb=new android.graphics.drawable.GradientDrawable();thumb.setColor(ui.border);thumb.setCornerRadius(ui.dp(4));android.graphics.drawable.GradientDrawable track=new android.graphics.drawable.GradientDrawable();track.setColor((ui.border&0xffffff)|0x33000000);track.setCornerRadius(ui.dp(4));scroll.setVerticalScrollbarThumbDrawable(thumb);scroll.setVerticalScrollbarTrackDrawable(track);}}
@@ -49,7 +55,7 @@ public final class NotesActivity extends ToolScreen {
         synchronized(store){Set<String> drawn=new HashSet<>();for(NotesModel.Page p:store.model.pages.values()){NotesModel.Page parent=store.model.pages.get(p.parent);if(store.model.visible(p)&&(parent==null||!store.model.visible(parent)))addPage(list,p,0,drawn);}}
         if(arranging){TextView top=text("Drop here to move outside categories",11);top.setTextColor(ui.border);top.setGravity(Gravity.CENTER);list.addView(top,new LinearLayout.LayoutParams(-1,ui.dp(64)));drop(top,null);}
         else if(!store.readOnly){Button add=button("+ New");list.addView(add,new LinearLayout.LayoutParams(-1,ui.dp(48)));add.setOnClickListener(v->newPage(store.model.parent));}
-        LinearLayout bar=row();Button back=button("Back");action(bar,back);Button lock=button(store.readOnly?"Read-only: On":"Read-only: Off"),beige=button("Find Beige");action(bar,lock);action(bar,beige);lock.setOnClickListener(v->{store.readOnly=!store.readOnly;arranging=false;build();});beige.setOnClickListener(v->{beigeResults=true;build();});root.addView(bar);back.setOnClickListener(v->back());if(!store.connected()){Button sync=button("Sync");action(bar,sync);sync.setOnClickListener(v->connection());}addToolNavigation();trackBottomRows();
+        LinearLayout bar=row();Button back=button("Back");action(bar,back);Button lock=button(store.readOnly?"Read-only: On":"Read-only: Off"),beige=button("Find Beige");action(bar,lock);if(!store.readOnly&&hasBeige())action(bar,beige);lock.setOnClickListener(v->{store.readOnly=!store.readOnly;arranging=false;build();});beige.setOnClickListener(v->{beigeResults=true;build();});root.addView(bar);back.setOnClickListener(v->back());if(!store.connected()){Button sync=button("Sync");action(bar,sync);sync.setOnClickListener(v->connection());}addToolNavigation();trackBottomRows();
         final int restoreY=listScrollY;currentScroll.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){public boolean onPreDraw(){if(currentScroll.getViewTreeObserver().isAlive())currentScroll.getViewTreeObserver().removeOnPreDrawListener(this);if(scroll==currentScroll){currentScroll.scrollTo(0,restoreY);listScrollY=currentScroll.getScrollY();restoringScroll=false;}return true;}});
     }
     private int defaultHue(){return Math.round((((BulletinApplication)getApplication()).store().game.hue+55)%360);}
@@ -157,31 +163,36 @@ public final class NotesActivity extends ToolScreen {
         root.setFocusableInTouchMode(true);root.requestFocus();
         documentTitle=NotesDialogs.input(this,palette(p),"Document title");documentTitle.setContentDescription("Document title");documentTitle.setTextSize(20);documentTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);documentTitle.setFilters(new InputFilter[]{new InputFilter.LengthFilter(200)});documentTitle.setText(p.title);documentTitle.setEnabled(!store.readOnly);
         LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,ui.dp(52));tp.setMargins(ui.dp(8),ui.dp(8),ui.dp(8),ui.dp(4));root.addView(documentTitle,tp);
-        documentTitle.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){}public void afterTextChanged(Editable e){if(refreshingTitle||store.readOnly)return;String title=e.toString().trim();if(title.isEmpty())return;try{store.rename(p,title);handler.removeCallbacks(delayedSync);handler.postDelayed(delayedSync,1500);}catch(Exception error){message(error.getMessage());}}});
+        documentTitle.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){}public void afterTextChanged(Editable e){if(refreshingTitle||store.readOnly)return;String title=e.toString().trim();if(title.isEmpty())return;try{store.rename(p,title);}catch(Exception error){message(error.getMessage());}}});
         documentTitle.setOnFocusChangeListener((v,focused)->{if(!focused&&documentTitle!=null&&documentTitle.getText().toString().trim().isEmpty()){refreshingTitle=true;documentTitle.setText(p.title);documentTitle.setEnabled(!store.readOnly);refreshingTitle=false;}});
-        editor=new NotesEditor(this,palette(p),p.id,p.body,!store.readOnly&&!p.category,value->{if(store.readOnly)return;try{store.edit(p.id,value);handler.removeCallbacks(delayedSync);handler.postDelayed(delayedSync,1500);}catch(Exception ex){message(ex.getMessage());}});
+        editor=new NotesEditor(this,palette(p),p.id,p.body,!store.readOnly&&!p.category,value->{if(store.readOnly)return;try{store.edit(p.id,value);}catch(Exception ex){message(ex.getMessage());}});
         root.addView(editor,new LinearLayout.LayoutParams(-1,0,1));if(jumpBeige>=0){editor.jumpBeige(jumpBeige);jumpBeige=-1;}
         LinearLayout bar=row();Button back=button("Back"),find=button("Find");action(bar,back);action(bar,find);back.setOnClickListener(v->back());find.setOnClickListener(v->editor.toggleFind());root.addView(bar);addToolNavigation();trackBottomRows();
     }
+    private boolean hasBeige(){synchronized(store){for(NotesModel.Page p:store.model.pages.values())if(!p.category&&store.model.visible(p)&&!BeigePassages.find(p.body).isEmpty())return true;}return false;}
     private void buildBeige(){
         title("Find Beige");ScrollView results=new ScrollView(this);LinearLayout list=column();results.addView(list);root.addView(results,new LinearLayout.LayoutParams(-1,0,1));
-        synchronized(store){for(NotesModel.Page p:store.model.pages.values())if(!p.category&&store.model.visible(p)){java.util.regex.Matcher matches=java.util.regex.Pattern.compile("<span color=\"beige\">([\\s\\S]*?)</span>").matcher(p.body);int index=0;while(matches.find()){final int occurrence=index++;Button entry=button(p.title+"\n"+android.text.Html.fromHtml(matches.group(1),0).toString());entry.setTextColor(0xffd8c3a5);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(ui.dp(8),ui.dp(6),ui.dp(8),ui.dp(6));list.addView(entry,lp);entry.setOnClickListener(v->{beigeScrollY=results.getScrollY();beigeResults=false;returnToBeige=true;editing=p.id;jumpBeige=occurrence;build();});}}}
+        synchronized(store){for(NotesModel.Page p:store.model.pages.values())if(!p.category&&store.model.visible(p))for(BeigePassages.Passage passage:BeigePassages.find(p.body)){
+            Button entry=button(passage.text);entry.setTextColor(0xffc4a06a);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(ui.dp(8),ui.dp(6),ui.dp(8),ui.dp(6));list.addView(entry,lp);entry.setOnClickListener(v->{beigeScrollY=results.getScrollY();beigeResults=false;returnToBeige=true;editing=p.id;jumpBeige=passage.firstSpan;build();});}}
         if(list.getChildCount()==0)list.addView(text("No beige text in your notes.",16));results.post(()->results.scrollTo(0,beigeScrollY));results.setOnScrollChangeListener((v,x,y,ox,oy)->beigeScrollY=y);
         LinearLayout actions=row();Button back=button("Back");action(actions,back);back.setOnClickListener(v->{beigeResults=false;build();});root.addView(actions);addToolNavigation();trackBottomRows();
     }
     private void trackBottomRows(){bottomRows.clear();for(int i=Math.max(0,root.getChildCount()-3);i<root.getChildCount();i++)bottomRows.add(root.getChildAt(i));onKeyboardVisibilityChanged(keyboardOpen);}
     @Override void onKeyboardVisibilityChanged(boolean visible){keyboardOpen=visible;if(bottomRows!=null)for(View row:bottomRows)row.setVisibility(visible?View.GONE:View.VISIBLE);}
     private void refreshEditor(){synchronized(store){NotesModel.Page p=store.model.pages.get(editing);if(p==null)return;if(documentTitle!=null&&!documentTitle.hasFocus()&&!documentTitle.getText().toString().equals(p.title)){refreshingTitle=true;documentTitle.setText(p.title);documentTitle.setEnabled(!store.readOnly);refreshingTitle=false;}if(editor!=null)editor.remote(p.body,!store.readOnly&&!p.category);}}
-    private void back(){if(!editing.isEmpty()){hideKeyboard();editing="";if(returnToBeige){beigeResults=true;returnToBeige=false;}build();sync(false);}else if(beigeResults){beigeResults=false;build();}else if(arranging){arranging=false;build();}else finish();}
-    @Override protected void onResume(){super.onResume();notesResumed=true;if(editing.isEmpty()){if(arranging&&store.readOnly)arranging=false;build();}else{if(documentTitle!=null)documentTitle.setEnabled(!store.readOnly);refreshEditor();}updateSyncStatus();handler.removeCallbacks(syncIndicator);handler.post(syncIndicator);handler.removeCallbacks(periodic);handler.postDelayed(periodic,30000);}
-    @Override protected void onPause(){notesResumed=false;if(editor!=null)editor.flush();getSharedPreferences("notes-location",0).edit().putString("editing",editing).putInt("scroll",listScrollY).putBoolean("beige",beigeResults).putBoolean("returnBeige",returnToBeige).putInt("beigeScroll",beigeScrollY).apply();handler.removeCallbacks(syncIndicator);handler.removeCallbacks(periodic);handler.removeCallbacks(delayedSync);if(store!=null)store.sync(null);super.onPause();}
-    @Override public void finish(){if(store!=null)store.sync(null);super.finish();}
+    private void back(){if(!editing.isEmpty()){hideKeyboard();editing="";if(returnToBeige){beigeResults=true;returnToBeige=false;}build();sync(false);}else if(beigeResults){beigeResults=false;build();}else if(arranging){arranging=false;build();}else{getSharedPreferences("tool-navigation",0).edit().putBoolean("notes-open",false).apply();finish();}}
+    @Override protected void onResume(){super.onResume();notesResumed=true;if(editing.isEmpty()){if(arranging&&store.readOnly)arranging=false;build();}else{if(documentTitle!=null)documentTitle.setEnabled(!store.readOnly);refreshEditor();}updateSyncStatus();handler.removeCallbacks(syncIndicator);handler.post(syncIndicator);}
+    @Override protected void onPause(){notesResumed=false;if(editor!=null)editor.flush(()->{if(leavingTools)NotesSyncJob.schedule(this);});getSharedPreferences("notes-location",0).edit().putString("editing",editing).putInt("scroll",listScrollY).putBoolean("beige",beigeResults).putBoolean("returnBeige",returnToBeige).putInt("beigeScroll",beigeScrollY).apply();handler.removeCallbacks(syncIndicator);super.onPause();}
+    @Override public void startActivity(Intent intent){leavingTools=intent.hasExtra("navigateTab")&&intent.getIntExtra("navigateTab",3)!=3;if(intent.getBooleanExtra("toolsHome",false))getSharedPreferences("tool-navigation",0).edit().putBoolean("notes-open",false).apply();super.startActivity(intent);}
+    @Override public void finish(){super.finish();}
     // API 33+ gestures use the OnBackInvokedCallback registered in onCreate.
     @SuppressWarnings("deprecation") @android.annotation.SuppressLint("GestureBackNavigation")
     @Override public void onBackPressed(){back();}
     @Override protected void onSaveInstanceState(Bundle out){out.putString("editing",editing);out.putBoolean("arranging",arranging);out.putInt("listScrollY",listScrollY);out.putStringArrayList("expanded",new ArrayList<>(expanded));super.onSaveInstanceState(out);}
     @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(emojiMenu!=null)emojiMenu.dismiss();if(dialog!=null)dialog.dismiss();if(editor!=null){root.removeView(editor);editor.destroy();editor=null;}super.onDestroy();}
 }
+
+
 
 
 
