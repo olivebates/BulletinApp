@@ -1,0 +1,10 @@
+package com.bulletin.app;
+import org.junit.Test;
+import static org.junit.Assert.*;
+public class NotesAppearanceTest {
+    @Test public void descendantsInheritNearestCategoryOverride(){NotesModel m=new NotesModel();NotesModel.Page parent=m.create("","Parent",true),nested=m.create(parent.id,"Nested",true),doc=m.create(nested.id,"Doc",false);parent.hue=120;assertEquals(120,m.effectiveHue(doc,55));nested.hue=240;assertEquals(240,m.effectiveHue(doc,55));assertEquals(120,m.effectiveHue(parent,55));nested.hue=-1;assertEquals(120,m.effectiveHue(doc,55));}
+    @Test public void colorsAndEmojisPersistWithoutChangingText()throws Exception{NotesModel m=new NotesModel();NotesModel.Page category=m.create("","Category",true),doc=m.create(category.id,"Doc",false);category.hue=175;doc.emoji="\uD83D\uDCDD";doc.body="Text";NotesModel restored=NotesModel.read(m.json().toString());assertEquals(175,restored.effectiveHue(restored.pages.get(doc.id),55));assertEquals(doc.emoji,restored.pages.get(doc.id).emoji);assertEquals("Text",restored.pages.get(doc.id).body);}
+    @Test public void inheritanceHandlesCyclesAndMissingParents(){NotesModel m=new NotesModel();NotesModel.Page a=m.create("","A",true),b=m.create(a.id,"B",true);a.parent=b.id;assertEquals(55,m.effectiveHue(a,55));b.hue=300;assertEquals(300,m.effectiveHue(a,55));b.parent="missing";b.hue=-1;assertEquals(55,m.effectiveHue(a,55));}
+    @Test public void categoryOpenAndClosedStatesSurviveRestart()throws Exception{NotesModel m=new NotesModel();NotesModel.Page closed=m.create("","Closed",true),open=m.create("","Open",true);open.collapsed=false;NotesModel restored=NotesModel.read(m.json().toString());assertTrue(restored.pages.get(closed.id).collapsed);assertFalse(restored.pages.get(open.id).collapsed);}
+    @Test public void olderNotesDefaultToCollapsedCategories()throws Exception{NotesModel m=new NotesModel();NotesModel.Page p=m.create("","Category",true);org.json.JSONObject data=p.json();data.remove("collapsed");assertTrue(NotesModel.Page.read(data).collapsed);}
+}

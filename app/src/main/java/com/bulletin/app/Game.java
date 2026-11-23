@@ -36,6 +36,7 @@ public final class Game {
     public static final int EXTRA = 0, NORMAL = 1, MINIMAL = 2, DEAD = 3, EXTREME = 4, RELAX = 5;
     public static final int LOW = MINIMAL; // Legacy saved value.
     public static final long NORMAL_DURATION = 25 * 60_000L;
+    public static final long MIN_OFFENSE_CENTS = 300;
     public static final String QUEST_HISTORY = "quest", FINE_HISTORY = "fine";
     public static final int STRICT = 0, AMOUNT = 1, TIMED = 2;
 
@@ -71,6 +72,7 @@ public final class Game {
         public String name = "";
         public String emoji = "";
         public int mode = STRICT, amountLimit = 3, amountUsed;
+        public long previousPenalty = -1;
         public long timeLimitMillis = 5 * 60_000L, remainingMillis = 5 * 60_000L, endsAt;
         public long remaining(long now) { return endsAt > 0 ? Math.max(0, endsAt - now) : remainingMillis; }
     }
@@ -134,6 +136,8 @@ public final class Game {
     }
     public int categoryRemaining(Category c, long onDay) { return Math.max(0, categoryNeeded(c, onDay) - categoryDone(c, onDay)); }
     public boolean categoryActive(Category c) { return categoryRemaining(c, day) > 0; }
+    public boolean canChangeCategoryRequirements(Category c) {return c==null||!c.mustDo||categoryRemaining(c,day)==0||categoryDone(c,day)>=3;}
+    public boolean canRemoveMustDo(Quest q) {return q==null||!q.required||q.done(day);}
     public String categoryTitle(Category c) { return c.name + (c.mustDo ? " (" + categoryDone(c, day) + "/" + categoryNeeded(c, day) + ")" : ""); }
     public void refreshCategory(Category c) {
         if (c == null || !c.mustDo) return;
@@ -214,18 +218,24 @@ public final class Game {
 
     public static final class Penalty {
         public final long days;
-        public final int percent;
-        public final long minimum;
-        private final long debtFloor;
-        public Penalty(long days, int percent) { this(days, percent, 0); }
-        public Penalty(long days, int percent, long minimum) { this(days, percent, minimum, Long.MIN_VALUE); }
-        private Penalty(long days, int percent, long minimum, long debtFloor) {
-            this.days = days; this.percent = percent; this.minimum = minimum; this.debtFloor = debtFloor;
+        private final int percent;
+        private final long fixedCoins, repetitions;
+        public Penalty(long days, int percent) { this(days, percent, -1, 1); }
+        private Penalty(long days, int percent, long fixedCoins, long repetitions) {
+            this.days = days; this.percent = Math.max(0, Math.min(100, percent)); this.fixedCoins = fixedCoins; this.repetitions = repetitions;
         }
         public long coins(long balance) {
-            if (days == 0 && percent == 0 && minimum == 0) return 0;
-            if (balance <= 0) return debtFloor == Long.MIN_VALUE ? 1000 : Math.min(1000, Math.max(0, balance - debtFloor));
-            return Math.min(balance, Math.max(minimum, (balance / 100) * percent + ((balance % 100) * percent + 99) / 100));
+            long capacity=Math.min(LIMIT,LIMIT+Math.max(-LIMIT,Math.min(LIMIT,balance)));
+            if(repetitions<=0||capacity<=0)return 0;
+            if (fixedCoins >= 0) return Math.min(capacity, Math.max(MIN_OFFENSE_CENTS,fixedCoins));
+            long positive=Math.max(0,Math.min(LIMIT,balance));
+            long charge = Math.max(MIN_OFFENSE_CENTS,(positive / 100) * percent + ((positive % 100) * percent + 99) / 100);
+            long total = 0;
+            for (long i = 0; i < repetitions && total < capacity; i++) {
+                total += Math.min(capacity - total, charge);
+                charge = raiseBounty(charge);
+            }
+            return total;
         }
         public long daysLost(long balance) { return Math.min(balance, days); }
     }
@@ -293,6 +303,8 @@ public final class Game {
     public final List<MissedReview> missedReviews = new ArrayList<>();
     /** A durable celebration waits until the bulletin board is visible. */
     public int pendingConfetti;
+    final CompletionLog completionLog = new CompletionLog();
+    final MustDoLog mustDoLog = new MustDoLog();
     public boolean randomMode;
     public long randomModeUsedMillis;
     public long randomDay = Long.MIN_VALUE;
@@ -306,13 +318,16 @@ public final class Game {
     public final List<Quest> quests = new ArrayList<>();
     public final List<Fine> fines = new ArrayList<>();
     public long day, days, coins, pendingCoins;
+    public org.json.JSONArray youtubeBookmarks=new org.json.JSONArray();
     public long timedMillisToday;
     public long nextBounty = 100;
     public int completedToday, finesToday;
+    public long previousFinePenalty = -1;
     public int questMinutes = 25, restMinutes = 5; // Legacy save fallback only; new sessions use fixed presets.
     public int energy = NORMAL;
     public int questsCreated, lawsCreated;
     public float hue = 186;
+    public int soundVolume = SoundVolume.DEFAULT;
     public Session session;
     public String lastSettlement = "";
     private long observedAt;
@@ -377,39 +392,41 @@ public final class Game {
     }
     public long bountyFor(Quest q, long now) {
         long baseline = baselineBountyFor(q);
-        return agedBounty(baseline, q.bountySince, now);
+        return requiredReward(agedBounty(baseline, q.bountySince, now),isRequired(q));
     }
     private long baselineBountyFor(Quest q) {
-        boolean required = isRequired(q);
-        if (!q.repeatable && !required) return proportionalBounty(nextBounty, false, 3, 10);
-        if (q.pausedRewardMillis >= 0) return proportionalBounty(nextBounty, required, q.pausedRewardMillis, q.pausedReferenceMillis);
-        if (q.pausedRewardMinutes >= 0) return scaledBounty(nextBounty, required, q.pausedRewardMinutes, q.pausedReferenceMinutes);
-        return proportionalBounty(nextBounty, required, energyDurationMillis(), NORMAL_DURATION);
+        if (!q.repeatable) return proportionalBounty(nextBounty, false, 3, 20);
+        if (q.pausedRewardMillis >= 0) return proportionalBounty(nextBounty, false, q.pausedRewardMillis, q.pausedReferenceMillis);
+        if (q.pausedRewardMinutes >= 0) return scaledBounty(nextBounty, false, q.pausedRewardMinutes, q.pausedReferenceMinutes);
+        return proportionalBounty(nextBounty, false, energyDurationMillis(), NORMAL_DURATION);
     }
     public long activeBounty() {
         return activeBounty(observedAt);
     }
     public long activeBounty(long now) {
         if (session == null) return previewBounty();
-        long baseline = session.rewardMillis >= 0 ? proportionalBounty(nextBounty, session.required, session.rewardMillis, session.referenceMillis)
-            : scaledBounty(nextBounty, session.required, session.rewardMinutes, session.referenceMinutes);
-        return agedBounty(baseline, session.bountySince, now);
+        long baseline = session.rewardMillis >= 0 ? proportionalBounty(nextBounty, false, session.rewardMillis, session.referenceMillis)
+            : scaledBounty(nextBounty, false, session.rewardMinutes, session.referenceMinutes);
+        // Older Must Do singles captured an energy ratio instead of the optional single's 30% ratio.
+        for(Quest q:quests)if(q.id.equals(session.questId)&&!q.repeatable){baseline=proportionalBounty(nextBounty,false,3,20);break;}
+        return requiredReward(agedBounty(baseline, session.bountySince, now),session.required);
     }
     public static long agedBounty(long baseline, long since, long now) {
         if (since < 0 || now <= since) return baseline;
         long hours = (now - since) / 3_600_000L;
-        double multiplier = Math.min(7, Math.pow(1.012, hours));
+        double multiplier = Math.min(4, Math.pow(1.012, hours));
         return Math.min(LIMIT, (long) Math.ceil(Math.min((double) LIMIT, baseline * multiplier)));
     }
     public long previewBounty() { return proportionalBounty(nextBounty, false, energyDurationMillis(), NORMAL_DURATION); }
+    private static long requiredReward(long optional,boolean required) {return required?Math.min(LIMIT,optional*2):optional;}
     public static long proportionalBounty(long base, boolean required, long duration, long reference) {
-        long denominator = Math.max(1, reference) * (required ? 10 : 1);
-        return Math.min(LIMIT, (base / denominator) * duration + ((base % denominator) * duration + denominator - 1) / denominator);
+        long denominator = Math.max(1, reference);
+        return requiredReward(Math.min(LIMIT, (base / denominator) * duration + ((base % denominator) * duration + denominator - 1) / denominator),required);
     }
     public static long scaledBounty(long base, boolean required, int minutes, int reference) {
-        int numerator = 1, denominator = required ? 10 : 1;
+        int numerator = 1, denominator = 1;
         if (minutes > 0 && reference > 0 && minutes < reference) { numerator = minutes; denominator *= reference; }
-        return (base * numerator + denominator - 1) / denominator;
+        return requiredReward((base * numerator + denominator - 1) / denominator,required);
     }
     public void recordBalance(long at) {
         recordBalance(at, balances.isEmpty() ? "Starting balance" : "Balance update");
@@ -454,23 +471,42 @@ public final class Game {
         for (Category c : categories) n += categoryRemaining(c, onDay);
         n = Math.min(100000000L, n);
         long lostDays = Math.min(LIMIT, n * (n + 3) / 2);
-        return new Penalty(lostDays, (int) Math.min(100, n * (n + 4)), Math.min(LIMIT, lostDays * 1000), -15000);
+        // Missed daily requirements share one settlement, with each additional slot costing 10% more.
+        return new Penalty(lostDays, 10, -1, n);
     }
     public Penalty nextFine() {
         long factor = 1L << Math.min(finesToday, 52);
-        return new Penalty(Math.min(LIMIT, 2 * factor), finesToday >= 4 ? 100 : (int) (10 * factor), factor > LIMIT / 2000 ? LIMIT : factor * 2000);
+        return finePenalty(Math.min(LIMIT, 2 * factor), previousFinePenalty);
+    }
+    public Penalty nextFine(Fine fine) { return finePenalty(nextFine().days, fine.previousPenalty); }
+    public Penalty nextLawFine() {
+        Penalty lowest = null;
+        for (Fine fine : fines) {
+            Penalty candidate = nextFine(fine);
+            if (lowest == null || candidate.coins(coins) < lowest.coins(coins)) lowest = candidate;
+        }
+        return lowest == null ? nextFine() : lowest;
+    }
+    private Penalty finePenalty(long lostDays, long previous) {
+        long charge = previous < 0 ? -1 : Math.min(LIMIT, previous + (previous + 9) / 10);
+        return new Penalty(lostDays, 10, charge, 1);
     }
     public void incurFine() {
+        incurFine(nextFine());
+    }
+    private void incurFine(Penalty penalty) {
         if (bountyChanges.isEmpty()) bountyBase = nextBounty;
         bountyChanges.add(new HistoryEntry("reset", "", "", 0));
-        apply(nextFine());
+        previousFinePenalty = penalty.coins(coins);
+        apply(penalty);
         nextBounty = 100;
         finesToday = Math.min(1000, finesToday + 1);
     }
     public void incurFine(Fine fine, long now) {
         if (!fines.contains(fine)) return;
         if (fine.mode == AMOUNT) fine.amountUsed = Math.min(Integer.MAX_VALUE - 1, fine.amountUsed + 1);
-        long before=coins; incurFine(); HistoryEntry event=new HistoryEntry(FINE_HISTORY,fine.id,fine.name,now);event.coinsDelta=coins-before;event.coinsKnown=true;history.add(event);recordBalance(now,"Law broken: "+fine.name);
+        long before=coins; incurFine(nextFine(fine)); fine.previousPenalty = before - coins;
+        HistoryEntry event=new HistoryEntry(FINE_HISTORY,fine.id,fine.name,now);event.coinsDelta=coins-before;event.coinsKnown=true;history.add(event);recordBalance(now,"Law broken: "+fine.name);
     }
     private void apply(Penalty p) {
         days = Math.max(0, days - p.days);
@@ -504,7 +540,7 @@ public final class Game {
         session.endsAt = session.timed ? now + (q.remainingMillis > 0 ? q.remainingMillis : durationFor(q)) : Long.MAX_VALUE;
         session.restMillis = session.timed ? q.pausedRestMillis >= 0 ? q.pausedRestMillis : energyRestMillis() : 0;
         session.restMinutes = (int) (session.restMillis / 60_000);
-        if (!q.repeatable && !session.required) { session.rewardMillis = 3; session.referenceMillis = 10; }
+        if (!q.repeatable) { session.rewardMillis = 3; session.referenceMillis = 20; }
         return true;
     }
     public List<Event> completeInstant(Quest q, long now) {
@@ -558,7 +594,9 @@ public final class Game {
                 completedToday = 0;
                 nextBounty = 100;
                 finesToday = 0;
+                previousFinePenalty = -1;
                 for (Fine law : fines) {
+                    law.previousPenalty = -1;
                     law.amountUsed = 0; law.remainingMillis = law.timeLimitMillis;
                     if (law.endsAt > 0) law.endsAt = midnight + law.timeLimitMillis;
                 }
@@ -615,9 +653,11 @@ public final class Game {
     private void finish(long at, List<Event> events) {
         boolean requiredWasOutstanding = requiredPenalty().days > 0;
         Quest completed = null;
+        boolean firstToday=true;
         for (Quest q : quests) {
             if (q.id.equals(session.questId)) {
                 completed = q;
+                firstToday=!q.done(session.occurrenceDay);
                 q.completions = q.completedDay == session.occurrenceDay ? q.completions + 1 : 1;
                 q.completedDay = session.occurrenceDay;
                 q.bountySince = at;
@@ -646,6 +686,8 @@ public final class Game {
         if (completed != null && completed.repeatable) pendingConfetti = Math.max(pendingConfetti, 1);
         if (session.required && requiredWasOutstanding && requiredPenalty().days == 0)
             pendingConfetti = 2;
+        if(firstToday)completionLog.record(session.questId,at,session.occurrenceDay,earned,session.required&&requiredWasOutstanding&&requiredPenalty().days==0);
+        if(requiredWasOutstanding && requiredPenalty().days==0 && session.occurrenceDay==day)mustDoLog.record(day);
         if (completed != null && !completed.repeatable && session.occurrenceDay == day) {
             UndoEntry entry = new UndoEntry(); entry.questId = completed.id; entry.at = at;
             entry.categoryId = completed.categoryId;
@@ -812,7 +854,7 @@ public final class Game {
                 if (!event.kind.equals(QUEST_HISTORY)) continue;
                 boolean required = false;
                 for (Quest q : quests) if (q.id.equals(event.id)) { required = q.required; break; }
-                if (event.id.equals(id)) { entry.at = event.at; entry.reward = scaledBounty(base, required, 0, questMinutes); entry.bountyBefore = base; entry.bountyAfter = required ? base : raiseBounty(base); break; }
+                if (event.id.equals(id)) { entry.at = event.at; entry.reward = event.coinsKnown?Math.max(0,event.coinsDelta):required?(base+9)/10:base; entry.categoryId=quest.categoryId; entry.bountyBefore = base; entry.bountyAfter = required ? base : raiseBounty(base); break; }
                 if (!required) base = raiseBounty(base);
             }
         }
@@ -831,6 +873,8 @@ public final class Game {
         }
         final long completedAt = entry.at;
         history.removeIf(e -> e.kind.equals(QUEST_HISTORY) && e.id.equals(id) && e.at == completedAt);
+        completionLog.undo(id,completedAt,history,ZoneId.systemDefault());
+        if(requiredPenalty().days>0)mustDoLog.undo(day);
         coins = Math.max(-LIMIT, coins - entry.reward);
         pendingCoins = Math.min(pendingCoins, Math.max(0, coins));
         if (bountyChanges.removeIf(e -> (e.kind.equals("raise") || e.kind.equals("time")) && e.id.equals(id) && e.at == completedAt)) {
@@ -840,6 +884,7 @@ public final class Game {
     }
     public void deleteQuest(Quest quest) {
         if (!quests.contains(quest)) return;
+        completionLog.delete(quest.id);
         deletedQuests.removeIf(q -> q.id.equals(quest.id)); deletedQuests.add(quest);
         if (session != null && session.questId.equals(quest.id)) session = null;
         focus.removeIf(e -> e.id.equals(quest.id));
@@ -865,3 +910,5 @@ public final class Game {
         recordBalance(now, "Corrected missed quest logging");
     }
 }
+
+

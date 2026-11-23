@@ -28,7 +28,8 @@ public final class MeditationService extends Service {
         long delay=!update&&previousInterval==interval&&pausedRemaining>0?pausedRemaining:interval;previousInterval=interval;pausedRemaining=0;
         next=SystemClock.elapsedRealtime()+delay;wake.acquire(delay+5000);handler.postDelayed(ring,delay);return START_NOT_STICKY;
     }
-    void setBellVolume(int percent){if(tones!=null)tones.setVolume(Math.max(0,Math.min(100,percent))/100f);}
+    void setBellVolume(int percent){if(tones!=null)tones.setVolume(SoundVolume.scale(SoundVolume.percent(percent)/100f,((BulletinApplication)getApplication()).store().game.soundVolume));}
+    void refreshVolume(){setBellVolume(getSharedPreferences("meditation",0).getInt("volume",55));}
     private void pause(){pausedRemaining=remaining();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
     @Override public void onDestroy(){handler.removeCallbacksAndMessages(null);if(wake!=null&&wake.isHeld())wake.release();if(tones!=null)tones.close();if(active==this)active=null;super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}

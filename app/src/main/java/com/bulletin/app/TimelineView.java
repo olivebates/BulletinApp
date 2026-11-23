@@ -15,18 +15,25 @@ final class TimelineView extends View {
     private final Game game;private final Ui ui;private final String kind,id,name;private final boolean showName;
     private final TextPaint paint=new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private java.util.Map<Game.HistoryEntry,Integer> summaryColors = new java.util.IdentityHashMap<>();
+    private final java.util.List<Float> dayTicks=new java.util.ArrayList<>();
     private TimelineRange.Window selectedWindow;private long selectedCount;private final java.util.List<Game.HistoryEntry> visible=new java.util.ArrayList<>();
     TimelineView(Context context,Game game,Ui ui,String kind,String id,String name,boolean showName){super(context);this.game=game;this.ui=ui;this.kind=kind;this.id=id;this.name=name;this.showName=showName;setMinimumHeight(ui.dp(48));setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);refreshRange();}
     void refreshRange(){refreshRange(TimelineRange.window(game,kind,System.currentTimeMillis(),ZoneId.systemDefault()));}
     void refreshRange(TimelineRange.Window window){
         summaryColors = TimelineColors.summaries(game);selectedWindow=window;selectedCount=0;visible.clear();ZoneId zone=ZoneId.systemDefault();
         for(Game.HistoryEntry e:game.history)if(e.kind.equals(kind)&&e.id.equals(id)&&TimelineRange.overlaps(e,window.start,window.end,zone)){visible.add(e);selectedCount=Game.add(selectedCount,e.count);}
+        dayTicks.clear();java.time.LocalDate day=Instant.ofEpochMilli(window.start).atZone(zone).toLocalDate();
+        for(long midnight=day.atStartOfDay(zone).toInstant().toEpochMilli();midnight<=window.end;midnight=day.atStartOfDay(zone).toInstant().toEpochMilli()){
+            if(midnight>=window.start)dayTicks.add((float)((double)(midnight-window.start)/Math.max(1,window.end-window.start)));day=day.plusDays(1);
+        }
         setContentDescription(name+": "+selectedCount+(kind.equals(Game.QUEST_HISTORY)?" completions":" fine reports")+" in selected range. Summary periods are included in full.");invalidate();
     }
     @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);ZoneId zone=ZoneId.systemDefault();TimelineRange.Window w=selectedWindow;
         float left=ui.dp(10),right=getWidth()-ui.dp(10),y=ui.dp(26);paint.setStyle(Paint.Style.FILL);paint.setColor(ui.text);paint.setTextSize(ui.dp(11));String count="×"+selectedCount;float width=paint.measureText(count);
         if(showName)canvas.drawText(TextUtils.ellipsize(name,paint,Math.max(1,right-left-width-ui.dp(8)),TextUtils.TruncateAt.END).toString(),left,ui.dp(13),paint);
         paint.setColor(Ui.GOLD);canvas.drawText(count,right-width,ui.dp(13),paint);paint.setColor(ui.border);paint.setStrokeWidth(2);canvas.drawLine(left,y,right,y,paint);
+        paint.setStrokeWidth(1);
+        for(float tick:dayTicks){float x=left+(right-left)*tick;canvas.drawLine(x,y-ui.dp(3),x,y+ui.dp(3),paint);}
         android.util.SparseIntArray stacks=new android.util.SparseIntArray();
         for(Game.HistoryEntry e:visible){if(!e.kind.equals(kind)||!e.id.equals(id)||!TimelineRange.overlaps(e,w.start,w.end,zone))continue;
             long first=Math.max(w.start,TimelineRange.first(e,zone)),last=Math.min(w.end,TimelineRange.last(e,zone));float x1=left+(right-left)*(float)((double)(first-w.start)/Math.max(1,w.end-w.start)),x2=left+(right-left)*(float)((double)(last-w.start)/Math.max(1,w.end-w.start));

@@ -22,7 +22,7 @@ public class LawAllowanceTest {
     @Test public void confirmedAmountOverstepIncrementsCounterAndAddsExactlyOneReport() {
         Game g = new Game(now, zone); Game.Fine f = law(g, Game.AMOUNT, 1, 10000); g.coins = 10000;
         g.useLawAmount(f); g.incurFine(f, now);
-        assertEquals(2, f.amountUsed); assertEquals(8000, g.coins); assertEquals(1, g.finesToday); assertEquals(1, g.history.size());
+        assertEquals(2, f.amountUsed); assertEquals(9000, g.coins); assertEquals(1, g.finesToday); assertEquals(1, g.history.size());
         assertEquals(1, new Statistics(g, true, now, zone).total);
     }
     @Test public void timerPausesAndResumesWithoutConsumingPausedTime() {

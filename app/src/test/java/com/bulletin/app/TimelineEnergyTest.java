@@ -30,10 +30,10 @@ public class TimelineEnergyTest {
         assertEquals(-1,loaded.history.get(0).energy); loaded.start(loaded.quests.get(0),now); assertEquals(-1,loaded.session.energy);
         assertEquals(TimelineColors.intensity(.5),TimelineColors.energy(-1));
     }
-    @Test public void paletteProgressesInEnergyOrderWithOriginalGoldAtExtreme() {
+    @Test public void paletteProgressesFromOriginalYellowToGreenInEnergyOrder() {
         int[] energies={Game.DEAD,Game.MINIMAL,Game.RELAX,Game.NORMAL,Game.EXTRA,Game.EXTREME};
-        assertEquals(TimelineColors.MAROON,TimelineColors.energy(Game.DEAD)); assertEquals(TimelineColors.YELLOW,TimelineColors.energy(Game.EXTREME));
-        int previous=-1; for(int energy:energies){int green=(TimelineColors.energy(energy)>>8)&255;assertTrue(green>previous);previous=green;}
+        assertEquals(TimelineColors.YELLOW,TimelineColors.energy(Game.DEAD)); assertEquals(TimelineColors.GREEN,TimelineColors.energy(Game.EXTREME));
+        int previous=256; for(int energy:energies){int red=(TimelineColors.energy(energy)>>16)&255;assertTrue(red<previous);previous=red;}
     }
     @Test public void dailySummariesCompareQuestDayTimeAcrossAllQuestsAndKeepTotalsOnReload() throws Exception {
         Game g=new Game(now,zone);Game.Quest a=quest(g),b=quest(g);
@@ -44,7 +44,7 @@ public class TimelineEnergyTest {
         HistoryAggregation.aggregate(g,zone);assertEquals(2,g.history.size());
         Game loaded=GameCodec.decode(GameCodec.encode(g).toString(),now,zone);
         Map<Game.HistoryEntry,Integer> colors=TimelineColors.summaries(loaded,zone);
-        for(Game.HistoryEntry e:loaded.history){assertEquals(-1,e.energy);if(e.id.equals(a.id)){assertEquals(2,e.count);assertEquals(Integer.valueOf(TimelineColors.intensity(.5)),colors.get(e));}else assertEquals(Integer.valueOf(TimelineColors.YELLOW),colors.get(e));}
+        for(Game.HistoryEntry e:loaded.history){assertEquals(-1,e.energy);if(e.id.equals(a.id)){assertEquals(2,e.count);assertEquals(Integer.valueOf(TimelineColors.intensity(.5)),colors.get(e));}else assertEquals(Integer.valueOf(TimelineColors.GREEN),colors.get(e));}
     }
     @Test public void weeklySummariesUseWeeklyTotalsAndDoNotAlterLawColors() {
         Game g=new Game(now,zone);Game.Quest q=quest(g);long day=g.day-500;
@@ -52,6 +52,6 @@ public class TimelineEnergyTest {
         g.focus.add(new Game.FocusEntry(q.id,q.name,day,60000));
         Game.HistoryEntry law=new Game.HistoryEntry(Game.FINE_HISTORY,"law","Law",e.at);g.history.add(law);
         HistoryAggregation.aggregate(g,zone);Map<Game.HistoryEntry,Integer> colors=TimelineColors.summaries(g,zone);
-        for(Game.HistoryEntry item:g.history)if(item.kind.equals(Game.QUEST_HISTORY))assertEquals(Integer.valueOf(TimelineColors.YELLOW),colors.get(item));else assertFalse(colors.containsKey(item));
+        for(Game.HistoryEntry item:g.history)if(item.kind.equals(Game.QUEST_HISTORY))assertEquals(Integer.valueOf(TimelineColors.GREEN),colors.get(item));else assertFalse(colors.containsKey(item));
     }
 }

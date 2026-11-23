@@ -1898,3 +1898,203 @@ Age	96 Years Old
 Age	97 Years Old
 Age	98 Years Old
 Age	99 Years Old
+Emotion	Joy
+Emotion	Sadness
+Emotion	Anger
+Emotion	Fear
+Emotion	Disgust
+Emotion	Surprise
+Emotion	Anticipation
+Emotion	Trust
+Emotion	Love
+Emotion	Hatred
+Emotion	Hope
+Emotion	Despair
+Emotion	Pride
+Emotion	Shame
+Emotion	Guilt
+Emotion	Envy
+Emotion	Jealousy
+Emotion	Gratitude
+Emotion	Resentment
+Emotion	Compassion
+Emotion	Empathy
+Emotion	Pity
+Emotion	Contempt
+Emotion	Admiration
+Emotion	Awe
+Emotion	Wonder
+Emotion	Curiosity
+Emotion	Confusion
+Emotion	Doubt
+Emotion	Suspicion
+Emotion	Confidence
+Emotion	Insecurity
+Emotion	Courage
+Emotion	Anxiety
+Emotion	Dread
+Emotion	Panic
+Emotion	Terror
+Emotion	Relief
+Emotion	Calm
+Emotion	Contentment
+Emotion	Satisfaction
+Emotion	Delight
+Emotion	Euphoria
+Emotion	Ecstasy
+Emotion	Amusement
+Emotion	Playfulness
+Emotion	Excitement
+Emotion	Exhilaration
+Emotion	Determination
+Emotion	Defiance
+Emotion	Frustration
+Emotion	Irritation
+Emotion	Impatience
+Emotion	Outrage
+Emotion	Rage
+Emotion	Bitterness
+Emotion	Disappointment
+Emotion	Regret
+Emotion	Remorse
+Emotion	Sorrow
+Emotion	Grief
+Emotion	Heartbreak
+Emotion	Loneliness
+Emotion	Homesickness
+Emotion	Nostalgia
+Emotion	Longing
+Emotion	Yearning
+Emotion	Affection
+Emotion	Tenderness
+Emotion	Devotion
+Emotion	Adoration
+Emotion	Infatuation
+Emotion	Desire
+Emotion	Lust
+Emotion	Vulnerability
+Emotion	Embarrassment
+Emotion	Humiliation
+Emotion	Self-Loathing
+Emotion	Acceptance
+Emotion	Forgiveness
+Emotion	Reverence
+Emotion	Serenity
+Emotion	Bliss
+Emotion	Melancholy
+Emotion	Boredom
+Emotion	Apathy
+Emotion	Weariness
+Emotion	Restlessness
+Emotion	Bewilderment
+Emotion	Astonishment
+Emotion	Disbelief
+Emotion	Feeling Betrayed
+Emotion	Feeling Abandoned
+Emotion	Feeling Rejected
+Emotion	Feeling Misunderstood
+Emotion	Feeling Overwhelmed
+Emotion	Feeling Appreciated
+Emotion	Feeling Vindicated
+Emotion	Feeling Safe
+Emotion	Feeling Exposed
+Internal Conflict	Duty Versus Desire
+Internal Conflict	Loyalty Versus Conscience
+Internal Conflict	Freedom Versus Security
+Internal Conflict	Love Versus Self-Preservation
+Internal Conflict	Ambition Versus Contentment
+Internal Conflict	Revenge Versus Forgiveness
+Internal Conflict	Truth Versus Belonging
+Internal Conflict	Instinct Versus Restraint
+Internal Conflict	Pride Versus Asking For Help
+Internal Conflict	Tradition Versus Change
+Internal Conflict	Mercy Versus Justice
+Internal Conflict	Honesty Versus Kindness
+Internal Conflict	Obedience Versus Independence
+Internal Conflict	Family Versus Personal Calling
+Internal Conflict	Survival Versus Compassion
+Internal Conflict	Power Versus Responsibility
+Internal Conflict	Curiosity Versus Caution
+Internal Conflict	Hope Versus Accepting Reality
+Internal Conflict	Faith Versus Doubt
+Internal Conflict	Reason Versus Emotion
+Internal Conflict	Hunger Versus A Sacred Vow
+Internal Conflict	Protecting Others Versus Protecting Oneself
+Internal Conflict	Keeping A Promise Versus Preventing Harm
+Internal Conflict	Fitting In Versus Being Authentic
+Internal Conflict	Seeking Approval Versus Self-Respect
+Internal Conflict	Forgiving Others Versus Honoring Pain
+Internal Conflict	Remembering The Past Versus Moving Forward
+Internal Conflict	Accepting Help Versus Remaining In Control
+Internal Conflict	Staying Hidden Versus Being Seen
+Internal Conflict	Speaking Up Versus Keeping The Peace
+Internal Conflict	Taking A Risk Versus Avoiding Regret
+Internal Conflict	Saving Face Versus Admitting Fault
+Internal Conflict	Leading Others Versus Following One's Heart
+Internal Conflict	Serving The Pack Versus Leaving It
+Internal Conflict	Guarding Territory Versus Welcoming Strangers
+Internal Conflict	Hunting Prey Versus Sparing A Familiar Face
+Internal Conflict	Following Migration Versus Staying With A Friend
+Internal Conflict	Protecting An Egg Versus Escaping Danger
+Internal Conflict	Feral Nature Versus Learned Manners
+Internal Conflict	Ancient Instincts Versus New Loyalties
+Internal Conflict	Accepting Transformation Versus Preserving Identity
+Internal Conflict	Embracing Power Versus Fearing Corruption
+Internal Conflict	Seeking Immortality Versus Valuing A Finite Life
+Internal Conflict	Sharing A Gift Versus Fearing Exploitation
+Internal Conflict	Keeping A Secret Versus Earning Trust
+Internal Conflict	Believing A Friend Versus Trusting Evidence
+Internal Conflict	Remaining Loyal Versus Escaping Manipulation
+Internal Conflict	Offering Trust Versus Remembering Betrayal
+Internal Conflict	Needing Company Versus Fearing Rejection
+Internal Conflict	Seeking Intimacy Versus Guarding Vulnerability
+Internal Conflict	Wanting Recognition Versus Fearing Attention
+Internal Conflict	Wanting Success Versus Fearing Its Cost
+Internal Conflict	Pursuing Perfection Versus Finishing The Work
+Internal Conflict	Accepting Praise Versus Feeling Undeserving
+Internal Conflict	Taking Credit Versus Sharing Recognition
+Internal Conflict	Admitting Ignorance Versus Appearing Capable
+Internal Conflict	Changing One's Mind Versus Appearing Weak
+Internal Conflict	Accepting Failure Versus Trying Again
+Internal Conflict	Competing With A Friend Versus Celebrating Them
+Internal Conflict	Envying A Rival Versus Admiring Their Skill
+Internal Conflict	Honoring A Mentor Versus Surpassing Them
+Internal Conflict	Following A Prophecy Versus Choosing A Future
+Internal Conflict	Accepting A Destiny Versus Rejecting Its Price
+Internal Conflict	Remembering A Former Self Versus Becoming Someone New
+Internal Conflict	Living Up To A Name Versus Defining Oneself
+Internal Conflict	Inherited Status Versus Earned Worth
+Internal Conflict	Being Useful Versus Being Loved
+Internal Conflict	Being Feared Versus Being Understood
+Internal Conflict	Being Needed Versus Being Free
+Internal Conflict	Strength Versus Gentleness
+Internal Conflict	Independence Versus Interdependence
+Internal Conflict	Self-Discipline Versus Spontaneity
+Internal Conflict	Immediate Pleasure Versus Lasting Fulfillment
+Internal Conflict	Comfort Versus Growth
+Internal Conflict	Certainty Versus Possibility
+Internal Conflict	Patience Versus Urgency
+Internal Conflict	Caution Versus Seizing An Opportunity
+Internal Conflict	Rest Versus Proving One's Worth
+Internal Conflict	Personal Boundaries Versus Generosity
+Internal Conflict	Self-Care Versus Self-Sacrifice
+Internal Conflict	Keeping Something Precious Versus Letting It Go
+Internal Conflict	Preserving Beauty Versus Allowing Natural Decay
+Internal Conflict	Remembering The Lost Versus Loving The Living
+Internal Conflict	Honoring The Dead Versus Protecting The Living
+Internal Conflict	Seeking Closure Versus Accepting Unanswered Questions
+Internal Conflict	Facing Grief Versus Escaping Into Distraction
+Internal Conflict	Making Amends Versus Hiding From Shame
+Internal Conflict	Punishing Oneself Versus Accepting Forgiveness
+Internal Conflict	Repairing A Bond Versus Walking Away
+Internal Conflict	Preserving A Friendship Versus Telling A Difficult Truth
+Internal Conflict	Protecting A Loved One Versus Respecting Their Choice
+Internal Conflict	Teaching Independence Versus Keeping Someone Close
+Internal Conflict	Leaving Home Versus Caring For Those Who Remain
+Internal Conflict	Returning Home Versus Facing What Has Changed
+Internal Conflict	Choosing One Community Versus Belonging To Two
+Internal Conflict	Seeking Adventure Versus Keeping A Peaceful Life
+Internal Conflict	Destroying A Threat Versus Understanding It
+Internal Conflict	Using A Dangerous Gift Versus Remaining Helpless
+Internal Conflict	Following Orders Versus Taking Responsibility
+Internal Conflict	Saving Everyone Versus Accepting One's Limits

@@ -25,17 +25,17 @@ public class EnergyTest {
         for (int i = 0; i < modes.length; i++) { g.energy = modes[i]; assertEquals(rewards[i], g.bountyFor(q)); assertEquals(rewards[i], g.previewBounty()); }
         g.energy = Game.LOW; g.nextBounty = 101; assertEquals(29, g.bountyFor(q));
     }
-    @Test public void singleQuestsStayInstantAndUseThirtyPercentRegardlessOfEnergy() {
+    @Test public void singleQuestsStayInstantAndUseFifteenPercentRegardlessOfEnergy() {
         Game g = new Game(now, zone); Game.Quest q = quest(g, false); g.energy = Game.EXTRA;
-        assertFalse(g.isTimed(q)); assertEquals(30, g.bountyFor(q));
-        g.completeInstant(q, now); assertEquals(30, g.coins); assertNull(g.session);
+        assertFalse(g.isTimed(q)); assertEquals(15, g.bountyFor(q));
+        g.completeInstant(q, now); assertEquals(15, g.coins); assertNull(g.session);
         assertTrue(g.restoreOneOff(q.id, now + 1)); assertEquals(0, g.coins);
     }
-    @Test public void requiredDiscountCombinesWithEnergyBeforeRounding() {
+    @Test public void requiredSingleIsDoubleTheOptionalSingleAtEveryEnergy() {
         Game g = new Game(now, zone); Game.Quest q = quest(g, false); q.required = true;
-        g.energy = Game.EXTRA; assertEquals(18, g.bountyFor(q));
-        g.energy = Game.MINIMAL; assertEquals(3, g.bountyFor(q));
-        g.energy = Game.DEAD; assertEquals(1, g.bountyFor(q));
+        g.energy = Game.EXTRA; assertEquals(30, g.bountyFor(q));
+        g.energy = Game.MINIMAL; assertEquals(30, g.bountyFor(q));
+        g.energy = Game.DEAD; assertEquals(30, g.bountyFor(q));
     }
     @Test public void activeAndPausedQuestsKeepAcceptedDurationAndRewardAcrossChanges() throws Exception {
         Game g = new Game(now, zone); g.restMinutes = 0; Game.Quest q = quest(g, true); g.energy = Game.DEAD;
@@ -84,3 +84,4 @@ public class EnergyTest {
         assertEquals(now + 1500000 + 240000, restored.session.endsAt);
     }
 }
+

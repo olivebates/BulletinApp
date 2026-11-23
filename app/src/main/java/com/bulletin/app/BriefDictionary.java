@@ -5,7 +5,7 @@ import java.util.*;
 
 /** Authored offline drawing prompts, with strict category sizes and no duplicate entries. */
 final class BriefDictionary {
-    static final String[] CATEGORIES={"Theme","Location","Architecture","Time Period","Scale","Ambience","Animal","Clothes Style","Body Type","Age","Personality"};
+    static final String[] CATEGORIES={"Theme","Location","Architecture","Time Period","Scale","Ambience","Animal","Clothes Style","Body Type","Age","Personality","Emotion","Internal Conflict"};
     private final Map<String,List<String>> entries=new LinkedHashMap<>();
     static boolean category(String name){return Arrays.asList(CATEGORIES).contains(name);}
     static BriefDictionary read(Reader input)throws IOException {

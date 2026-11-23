@@ -35,15 +35,21 @@ final class Ui {
         return new RippleDrawable(ColorStateList.valueOf((stroke & 0x00ffffff) | 0x30000000), panel(stroke), null);
     }
     Drawable requiredButton() {
+        return questSurface(GOLD,2,true,0);
+    }
+    Drawable questButton(int stroke,boolean required,int completions) {return questSurface(stroke,1,required,completions);}
+    private Drawable questSurface(int stroke,int width,boolean required,int completions) {
         GradientDrawable fill = new GradientDrawable();
-        fill.setColor(Color.rgb((Color.red(background) * 4 + Color.red(border)) / 5,
+        int base=required?Color.rgb((Color.red(background) * 4 + Color.red(border)) / 5,
             (Color.green(background) * 4 + Color.green(border)) / 5,
-            (Color.blue(background) * 4 + Color.blue(border)) / 5));
-        fill.setStroke(2, GOLD);
+            (Color.blue(background) * 4 + Color.blue(border)) / 5):background;
+        fill.setColor(CompletionVisuals.completedBackground(base,completions));
+        fill.setStroke(width, stroke);
+        if(!required)return new RippleDrawable(ColorStateList.valueOf((stroke & 0x00ffffff) | 0x30000000),fill,null);
         GradientDrawable stripe = new GradientDrawable(); stripe.setColor(GOLD);
         android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(new Drawable[]{fill, stripe});
         layers.setLayerWidth(1, dp(4)); layers.setLayerGravity(1, android.view.Gravity.LEFT | android.view.Gravity.FILL_VERTICAL);
-        return new RippleDrawable(ColorStateList.valueOf((GOLD & 0x00ffffff) | 0x30000000), layers, null);
+        return new RippleDrawable(ColorStateList.valueOf((stroke & 0x00ffffff) | 0x30000000), layers, null);
     }
     View icon(String name, int color, int size) {
         android.widget.ImageView v = new android.widget.ImageView(context);

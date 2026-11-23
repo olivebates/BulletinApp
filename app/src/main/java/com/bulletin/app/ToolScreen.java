@@ -21,8 +21,9 @@ abstract class ToolScreen extends Activity {
         getWindow().setStatusBarColor(ui.background); getWindow().setNavigationBarColor(ui.background);
         if (android.os.Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         root = column(); root.setBackgroundColor(ui.background); setContentView(root);
-        root.setOnApplyWindowInsetsListener((v,insets)->{if(android.os.Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);}else v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});root.requestApplyInsets();
+        root.setOnApplyWindowInsetsListener((v,insets)->{boolean keyboard;if(android.os.Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());v.setPadding(bars.left,bars.top,bars.right,bars.bottom);keyboard=insets.isVisible(WindowInsets.Type.ime());}else{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());keyboard=insets.getSystemWindowInsetBottom()>ui.dp(100);}onKeyboardVisibilityChanged(keyboard);return insets;});root.requestApplyInsets();
     }
+    void onKeyboardVisibilityChanged(boolean visible){}
     @Override public void startActivity(android.content.Intent intent){super.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION),android.app.ActivityOptions.makeCustomAnimation(this,0,0).toBundle());}
     @Override public void finish(){super.finish();disableLegacyTransition();}
     @Override public void finishAfterTransition(){finish();}

@@ -6,6 +6,15 @@ import java.time.ZoneId;
 import static org.junit.Assert.*;
 
 public class CategoryQuotaTest {
+    @Test public void editingQuotaToZeroRemovesRequirementsAndSurvivesRestart() throws Exception {
+        Game g = new Game(now, zone); Game.Category c = category(g, false, 1); Game.Quest q = quest(g, c, true);
+        assertTrue(g.isRequired(q)); c.requiredTasks = 0; c.fulfilledDay = Long.MIN_VALUE; c.fulfilledTarget = 0; g.refreshCategory(c);
+        assertFalse(g.isRequired(q)); assertEquals(0, g.categoryRemaining(c, g.day)); assertEquals(0, g.requiredPenalty().days);
+        Game loaded = GameCodec.decode(GameCodec.encode(g).toString(), now + 1, zone);
+        assertEquals(0, loaded.categories.get(0).requiredTasks); assertFalse(loaded.isRequired(loaded.quests.get(0)));
+        loaded.advance(midnight, zone); assertTrue(loaded.missedReviews.isEmpty());
+        c.requiredTasks = 1; g.refreshCategory(c); assertTrue(g.isRequired(q));
+    }
     private final ZoneId zone = ZoneId.of("UTC");
     private final long now = Instant.parse("2026-10-30T12:00:00Z").toEpochMilli();
     private final long midnight = Instant.parse("2026-10-31T00:00:00Z").toEpochMilli();
@@ -42,7 +51,7 @@ public class CategoryQuotaTest {
     @Test public void unfinishedCategorySettlesOnceUsingRemainingSlotsAndNamesTheCategory() {
         Game g = new Game(now, zone); g.days = 10; g.coins = 10000; Game.Category c = category(g, false, 3); Game.Quest a = quest(g, c, false); finish(g, a, now);
         g.advance(midnight, zone); assertEquals(5, g.days); assertEquals(1, g.missedReviews.size()); assertEquals("Daily (1/3)", g.missedReviews.get(0).names.get(0));
-        assertEquals(5000, g.missedReviews.get(0).coinsLost); assertEquals(0, g.categoryDone(c, g.day));
+        assertEquals(2107, g.missedReviews.get(0).coinsLost); assertEquals(0, g.categoryDone(c, g.day));
         long coins = g.coins; g.advance(midnight, zone); assertEquals(coins, g.coins); assertEquals(1, g.missedReviews.size());
     }
     @Test public void progressAllTargetAndTimedSingleFlagsSurviveRestart() throws Exception {
@@ -66,7 +75,7 @@ public class CategoryQuotaTest {
         Game g = new Game(now, zone); g.energy = Game.DEAD; Game.Quest q = quest(g, null, false); q.timed = true;
         assertEquals(120000, g.durationFor(q)); assertTrue(g.completeInstant(q, now).isEmpty()); assertTrue(g.hasActiveRepeatableQuests());
         assertTrue(g.start(q, now)); g.advance(now + 119999, zone); assertFalse(q.done(g.day)); g.advance(now + 120000, zone);
-        assertTrue(q.done(g.day)); assertFalse(g.availableQuests().contains(q)); assertEquals(30, g.coins); assertEquals(Game.REST, g.session.phase);
+        assertTrue(q.done(g.day)); assertFalse(g.availableQuests().contains(q)); assertEquals(15, g.coins); assertEquals(Game.REST, g.session.phase);
         g.advance(now + 160000, zone); assertNull(g.session); assertFalse(g.canStart(q)); assertTrue(g.completedOneOffs().contains(q));
         assertTrue(g.restoreOneOff(q.id, now + 161000)); assertTrue(g.canStart(q)); assertEquals(0, g.coins);
     }
@@ -74,10 +83,11 @@ public class CategoryQuotaTest {
         Game g = new Game(now, zone); g.energy = Game.DEAD; Game.Quest q = quest(g, null, false); q.timed = true; g.start(q, now); g.pauseQuest(now + 5000);
         Game loaded = GameCodec.decode(GameCodec.encodeLegacy(g).toString(), now + 10000, zone); Game.Quest resumed = loaded.quests.get(0);
         assertTrue(resumed.timed); assertEquals(115000, loaded.remainingFor(resumed, now + 10000)); assertTrue(loaded.start(resumed, now + 10000));
-        loaded.advance(now + 125000, zone); assertTrue(resumed.done(loaded.day)); assertEquals(30, loaded.coins);
+        loaded.advance(now + 125000, zone); assertTrue(resumed.done(loaded.day)); assertEquals(15, loaded.coins);
     }
     @Test public void randomChoicesPrioritizeCategoryRequiredMembersAndThenBecomeOptional() {
         Game g = new Game(now, zone); Game.Category c = category(g, false, 1); Game.Quest q = quest(g, c, false); quest(g, null, false);
         g.randomMode = true; assertEquals(q, g.boardQuests().get(0)); finish(g, q, now); assertFalse(g.categoryActive(c)); assertEquals(0, g.requiredPenalty().days);
     }
 }
+

@@ -11,6 +11,7 @@ public final class TimerReceiver extends BroadcastReceiver {
                 && !Intent.ACTION_TIMEZONE_CHANGED.equals(action)) return;
         GameStore store = ((BulletinApplication) context.getApplicationContext()).store();
         store.sync();
+        MustDoReminder.schedule(context);
         if (store.game.hasRunningTimers()) {
             try { context.startForegroundService(new Intent(context, TimerService.class)); }
             catch (IllegalStateException ignored) { /* Resume the saved timer when the app next opens. */ }

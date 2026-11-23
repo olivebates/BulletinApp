@@ -7,9 +7,9 @@ android {
         applicationId 'com.bulletin.app'
         minSdk 26
         targetSdk 36
-        versionCode 74
-        versionName '1.73'
-        testInstrumentationRunner 'android.test.InstrumentationTestRunner'
+        versionCode 95
+        versionName '1.94'
+        testInstrumentationRunner 'com.bulletin.app.NotesEditorInstrumentation'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

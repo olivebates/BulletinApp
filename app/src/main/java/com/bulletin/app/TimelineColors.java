@@ -5,7 +5,7 @@ import java.util.*;
 
 /** Session colors follow accepted energy; summaries follow their recorded focus totals. */
 final class TimelineColors {
-    static final int MAROON = 0xff800020, YELLOW = 0xfff4d17e;
+    static final int YELLOW = 0xfff4d17e, GREEN = 0xff55d98b;
     static int energy(int energy) {
         switch (energy) {
             case Game.DEAD: return intensity(0);
@@ -13,14 +13,14 @@ final class TimelineColors {
             case Game.RELAX: return intensity(.4);
             case Game.NORMAL: return intensity(.6);
             case Game.EXTRA: return intensity(.8);
-            case Game.EXTREME: return YELLOW;
+            case Game.EXTREME: return GREEN;
             default: return intensity(.5); // Unknown historical energy uses the midpoint.
         }
     }
     static int intensity(double amount) {
         amount = Math.max(0, Math.min(1, amount));
-        return 0xff000000 | ((int) Math.round(128 + 116 * amount) << 16)
-            | ((int) Math.round(209 * amount) << 8) | (int) Math.round(32 + 94 * amount);
+        return 0xff000000 | ((int) Math.round(244 - 159 * amount) << 16)
+            | ((int) Math.round(209 + 8 * amount) << 8) | (int) Math.round(126 + 13 * amount);
     }
     static Map<Game.HistoryEntry,Integer> summaries(Game game) {
         return summaries(game, ZoneId.systemDefault());

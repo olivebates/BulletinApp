@@ -16,7 +16,6 @@ public final class GameStore {
     public long revision;
     public String warning;
     private final SharedPreferences preferences;
-    private final Handler handler = new Handler(Looper.getMainLooper());
     private String lastValidSave = "";
     private boolean readOnly;
     private long saveGeneration;
@@ -94,6 +93,7 @@ public final class GameStore {
         }
         game = loaded;
         sounds = new Synth(context);
+        applySoundVolume();
         try { archive = BackupArchive.decode(preferences.getString("backup_archive", "[]")); }
         catch (Exception ex) {
             preferences.edit().putString("unreadable_backup_archive", preferences.getString("backup_archive", "")).commit();
@@ -140,14 +140,13 @@ public final class GameStore {
         java.util.List<String> warnings = new java.util.ArrayList<>();
         for (Game.Event event : events) if (event.type.equals("lawLimit") && now - event.at < 5000) warnings.add(event.id);
         if (!warnings.isEmpty()) sounds.playWarning(() -> startLawWarning(warnings));
-        boolean victory = events.stream().anyMatch(e -> e.type.equals("victory") && now - e.at < 5000);
-        if (victory) handler.removeCallbacksAndMessages(null);
+        playCompletionSounds(events,now,sounds::play);
+    }
+    static void playCompletionSounds(List<Game.Event> events,long now,java.util.function.IntConsumer play) {
         for (Game.Event event : events) {
-            if (now - event.at > 5000) continue;
-            if (event.type.equals("victory")) sounds.play(Synth.VICTORY);
-            if (event.type.equals("ready")) {
-                handler.postDelayed(() -> sounds.play(Synth.DING), victory ? 1200 : 0);
-            }
+            if (event.at > now || now - event.at >= 5000) continue;
+            if (event.type.equals("victory")) play.accept(Synth.VICTORY);
+            if (event.type.equals("ready")) play.accept(Synth.DING);
         }
     }
     public boolean incrementLawAmount(Game.Fine law) {
@@ -209,9 +208,9 @@ public final class GameStore {
         String previous = preferences.getString("state", "");
         if (!preferences.edit().putString("backup", previous).putString("state", encoded).commit())
             throw new java.io.IOException("Could not save restored progress");
-        handler.removeCallbacksAndMessages(null); notices.clear(); lawWarningStarts.clear();
+        notices.clear(); lawWarningStarts.clear();
         saveGeneration++; compressionHandler.removeCallbacksAndMessages(null);
-        game = candidate; lastValidSave = encoded; readOnly = false; revision++;
+        game = candidate;applySoundVolume();lastValidSave = encoded; readOnly = false; revision++;
     }
     private void refineSave(String json, String saved, long generation) {
         compressionHandler.removeCallbacksAndMessages(null);
@@ -230,7 +229,9 @@ public final class GameStore {
         }, 500);
     }
     public boolean save() { return save(false); }
+    private void applySoundVolume(){sounds.setVolume(game.soundVolume);if(MeditationService.active!=null)MeditationService.active.refreshVolume();}
     private boolean save(boolean strongest) {
+        applySoundVolume();
         revision++;
         if (readOnly) return false;
         long generation = ++saveGeneration; compressionHandler.removeCallbacksAndMessages(null);

@@ -30,7 +30,7 @@ public class TimeBountyTest {
     }
     @Test public void undoTimedOneOffReplaysLaterCreditsAndReturnsTheirExactRewards(){
         Game g=new Game(now,zone);Game.Quest a=quest(g,false,false),b=quest(g,false,false);a.timed=b.timed=true;g.energy=Game.EXTRA;long at=finish(g,a,now);assertEquals(110,g.nextBounty);assertEquals(20*60000,g.bountyProgressMillis());
-        g.energy=Game.NORMAL;finish(g,b,at);assertEquals(121,g.nextBounty);assertTrue(g.restoreOneOff(a.id,at+1800000));assertEquals(110,g.nextBounty);assertEquals(0,g.bountyProgressMillis());assertEquals(33,g.coins);
+        g.energy=Game.NORMAL;finish(g,b,at);assertEquals(121,g.nextBounty);assertTrue(g.restoreOneOff(a.id,at+1800000));assertEquals(110,g.nextBounty);assertEquals(0,g.bountyProgressMillis());assertEquals(17,g.coins);
         assertTrue(g.restoreOneOff(b.id,at+1800001));assertEquals(100,g.nextBounty);assertEquals(0,g.bountyProgressMillis());assertEquals(0,g.coins);
     }
     @Test public void fineAndMidnightResetPartialGrowth(){

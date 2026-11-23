@@ -19,8 +19,8 @@ public class DailyRulesTest {
         g.advance(midnight + 2 * 86400000L, zone); assertEquals(-300, g.coins);
         g.coins = -9950; g.advance(midnight + 3 * 86400000L, zone); assertEquals(-10000, g.coins);
         g.advance(midnight + 4 * 86400000L, zone); assertEquals(-10000, g.coins);
-        g.incurFine(); assertEquals(-11000, g.coins);
-        g.advance(midnight + 5 * 86400000L, zone); assertEquals(-11000, g.coins);
+        g.incurFine(); assertEquals(-10300, g.coins);
+        g.advance(midnight + 5 * 86400000L, zone); assertEquals(-10300, g.coins);
     }
     @Test public void rentFollowsDailyInterest() {
         Game g = new Game(now, zone); g.coins = 10000; g.pendingCoins = 10000;
@@ -28,7 +28,7 @@ public class DailyRulesTest {
     }
     @Test public void correctingMissedTasksStillChargesRentWhenThePenaltyHadPassedTheRentFloor() {
         Game g = new Game(now, zone); g.coins = -9500; quest(g, false).required = true;
-        g.advance(midnight, zone); assertEquals(-10500, g.coins);
+        g.advance(midnight, zone); assertEquals(-9900, g.coins);
         g.resolveMissed(true, midnight + 1, zone); assertEquals(-9600, g.coins);
     }
     @Test public void finishingAChoiceRefreshesBothOptions() {
@@ -41,10 +41,10 @@ public class DailyRulesTest {
     @Test public void untimedSinglesRestoreOutOfOrderWithoutAddingBountyGrowth() {
         Game g = new Game(now, zone); Game.Quest first = quest(g, false), second = quest(g, false), third = quest(g, false);
         g.completeInstant(first, now); g.completeInstant(second, now + 1); g.completeInstant(third, now + 2);
-        assertEquals(90, g.coins); assertEquals(100, g.nextBounty);
-        assertTrue(g.restoreOneOff(first.id, now + 3)); assertEquals(60, g.coins); assertEquals(100, g.nextBounty);
+        assertEquals(45, g.coins); assertEquals(100, g.nextBounty);
+        assertTrue(g.restoreOneOff(first.id, now + 3)); assertEquals(30, g.coins); assertEquals(100, g.nextBounty);
         assertFalse(first.done(g.day)); assertEquals(2, g.completedOneOffs().size());
-        assertTrue(g.restoreOneOff(third.id, now + 4)); assertEquals(30, g.coins); assertEquals(100, g.nextBounty);
+        assertTrue(g.restoreOneOff(third.id, now + 4)); assertEquals(15, g.coins); assertEquals(100, g.nextBounty);
         assertTrue(g.restoreOneOff(second.id, now + 5)); assertEquals(0, g.coins); assertEquals(100, g.nextBounty);
         assertFalse(g.restoreOneOff(first.id, now + 6));
     }
@@ -86,3 +86,4 @@ public class DailyRulesTest {
         assertEquals(base, loaded.nextBounty);
     }
 }
+

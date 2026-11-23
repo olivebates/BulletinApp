@@ -65,10 +65,10 @@ public class CategoryAndProgressTest {
         Game g = new Game(now, zone); g.days = 10; quest(g).required = true; g.completeInstant(quest(g), now);
         g.advance(midnight, zone); assertEquals(8, g.days); assertEquals(1, g.missedReviews.size());
     }
-    @Test public void oneOffRewardIsThirtyPercentAtEveryEnergyAndMatchesTheAward() {
+    @Test public void oneOffRewardIsFifteenPercentAtEveryEnergyAndMatchesTheAward() {
         for (int energy = Game.EXTRA; energy <= Game.RELAX; energy++) {
             Game g = new Game(now, zone); g.energy = energy; g.nextBounty = 101; Game.Quest q = quest(g);
-            assertEquals(31, g.bountyFor(q)); g.completeInstant(q, now); assertEquals(31, g.coins);
+            assertEquals(16, g.bountyFor(q)); g.completeInstant(q, now); assertEquals(16, g.coins);
         }
     }
     @Test public void offlineTimerFinishesAndAgesBountiesWithoutForegroundTicks() throws Exception {
@@ -85,3 +85,4 @@ public class CategoryAndProgressTest {
         assertTrue(loaded.balances.stream().anyMatch(p -> p.cause.startsWith("Quest completed:")));
     }
 }
+

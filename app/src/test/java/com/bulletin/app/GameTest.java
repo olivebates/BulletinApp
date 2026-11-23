@@ -27,8 +27,8 @@ public class GameTest {
     }
     @Test public void requiredRewardsDoNotIncreaseBounty() {
         Game g = game(); g.nextBounty = 134; Game.Quest q = quest(g, true, true, true);
-        assertEquals(14, g.bountyFor(q)); complete(g, q, NOW); complete(g, q, NOW + 1800000);
-        assertEquals(28, g.coins); assertEquals(134, g.nextBounty);
+        assertEquals(268, g.bountyFor(q)); complete(g, q, NOW); complete(g, q, NOW + 1800000);
+        assertEquals(536, g.coins); assertEquals(134, g.nextBounty);
     }
     @Test public void fixedPresetsIgnoreLegacyDurationOverrides() {
         Game g = game(); g.questMinutes = 15; Game.Quest q = quest(g, true, false, true);
@@ -36,9 +36,9 @@ public class GameTest {
         g.questMinutes = 30; assertEquals(25, g.minutesFor(q)); assertEquals(100, g.bountyFor(q));
         q.questMinutes = 0; assertEquals(100, g.bountyFor(q));
     }
-    @Test public void requiredAndTimeDiscountsCombineBeforeRounding() {
-        assertEquals(4, Game.scaledBounty(100, true, 5, 15));
-        assertEquals(10, Game.scaledBounty(100, true, 0, 15));
+    @Test public void requiredRewardDoublesTheRoundedOptionalTimeReward() {
+        assertEquals(68, Game.scaledBounty(100, true, 5, 15));
+        assertEquals(200, Game.scaledBounty(100, true, 0, 15));
         assertEquals(100, Game.scaledBounty(100, false, 5, 0));
         assertTrue(Game.scaledBounty(Game.LIMIT, false, 239, 240) > 0);
     }
@@ -52,7 +52,7 @@ public class GameTest {
     @Test public void nonMultipleQuestsAreManualRegardlessOfTimeField() {
         Game g = game(); Game.Quest q = quest(g, false, false, true); q.questMinutes = 5;
         g.start(q, NOW); assertFalse(g.session.timed); g.advance(NOW + 3600000, UTC); assertEquals(0, g.coins);
-        assertEquals(0, g.focusMillisToday(NOW + 3600000)); g.completeManual(NOW + 3600000); assertEquals(30, g.coins);
+        assertEquals(0, g.focusMillisToday(NOW + 3600000)); g.completeManual(NOW + 3600000); assertEquals(15, g.coins);
     }
     @Test public void cancelledTimedQuestKeepsTimeButGivesNoRewardOrCompletion() {
         Game g = game(); Game.Quest q = quest(g, true, true, true); g.start(q, NOW);
@@ -78,7 +78,7 @@ public class GameTest {
     @Test public void syncAndManualDoubleTapCannotDuplicateAwardsOrHistory() {
         Game g = game(); Game.Quest q = quest(g, false, false, true); complete(g, q, NOW);
         assertTrue(g.completeManual(NOW + 1).isEmpty()); g.advance(NOW + 120000, UTC); g.advance(NOW + 120000, UTC);
-        assertEquals(30, g.coins); assertEquals(1, g.history.size()); assertEquals(30, g.takePendingCoins()); assertEquals(0, g.takePendingCoins());
+        assertEquals(15, g.coins); assertEquals(1, g.history.size()); assertEquals(15, g.takePendingCoins()); assertEquals(0, g.takePendingCoins());
     }
     @Test public void onlyOneQuestCanRun() {
         Game g = game(); Game.Quest a = quest(g, true, false, true), b = quest(g, true, false, true);
@@ -93,37 +93,37 @@ public class GameTest {
         assertFalse(g.canStart(q)); assertEquals(0, g.requiredPenalty().coins(0));
         assertTrue(q.due(q.firstDay)); assertFalse(q.due(q.firstDay + 1)); assertTrue(q.due(q.firstDay + 3));
     }
-    @Test public void missedRequiredMinimumsAreTwentyThirtyFortyEuros() {
-        Game g = game(); quest(g, false, true, false); assertEquals(2000, g.requiredPenalty().minimum); assertEquals(2, g.requiredPenalty().days);
-        quest(g, false, true, false); assertEquals(5000, g.requiredPenalty().minimum); assertEquals(5, g.requiredPenalty().days);
-        quest(g, false, true, false); assertEquals(9000, g.requiredPenalty().minimum); assertEquals(21, g.requiredPenalty().percent);
+    @Test public void missedRequiredChargesGrowByTenPercent() {
+        Game g = game(); quest(g, false, true, false); assertEquals(1000, g.requiredPenalty().coins(10000)); assertEquals(2, g.requiredPenalty().days);
+        quest(g, false, true, false); assertEquals(2100, g.requiredPenalty().coins(10000)); assertEquals(5, g.requiredPenalty().days);
+        quest(g, false, true, false); assertEquals(3310, g.requiredPenalty().coins(10000));
     }
-    @Test public void higherPercentageWinsOverTheMinimum() {
-        Game g = game(); quest(g, false, true, false); assertEquals(5000, g.requiredPenalty().coins(100000));
-        assertEquals(1, g.requiredPenalty().coins(1)); assertEquals(1000, g.requiredPenalty().coins(-1));
+    @Test public void requiredPenaltyIsTenPercentWithAThreeEuroMinimum() {
+        Game g = game(); quest(g, false, true, false); assertEquals(10000, g.requiredPenalty().coins(100000));
+        assertEquals(300, g.requiredPenalty().coins(1)); assertEquals(300, g.requiredPenalty().coins(-1));
     }
-    @Test public void fineMinimumDoublesAndPositiveBalancesStopAtZero() {
+    @Test public void fineChargeGrowsFromThePreviousChargeInsteadOfTheShrinkingBalance() {
         Game g = game(); g.coins = 10000; g.days = 20;
-        g.incurFine(); assertEquals(8000, g.coins); assertEquals(4000, g.nextFine().minimum); assertEquals(18, g.days);
-        g.incurFine(); assertEquals(4000, g.coins); g.incurFine(); assertEquals(0, g.coins);
-        assertEquals(16000, g.nextFine().minimum);
-        g.incurFine(); assertEquals(-1000, g.coins);
+        g.incurFine(); assertEquals(9000, g.coins); assertEquals(1100, g.nextFine().coins(g.coins)); assertEquals(18, g.days);
+        g.incurFine(); assertEquals(7900, g.coins); g.incurFine(); assertEquals(6690, g.coins);
+        assertEquals(1331, g.nextFine().coins(g.coins));
+        g.incurFine(); assertEquals(5359, g.coins);
     }
     @Test public void finePercentageCanExceedMinimumAndRoundsUp() {
         Game g = game(); g.coins = 100001; g.incurFine(); assertEquals(90000, g.coins);
-        assertEquals(1, new Game.Penalty(2, 5).coins(1));
+        assertEquals(300, new Game.Penalty(2, 5).coins(1));
     }
-    @Test public void zeroOrNegativeBalanceFineAlwaysCostsTenEuros() {
-        Game g = game(); g.incurFine(); assertEquals(-1000, g.coins); g.incurFine(); assertEquals(-2000, g.coins);
+    @Test public void zeroOrNegativeBalanceStillPaysTheMinimumAndEscalation() {
+        Game g = game(); g.incurFine(); assertEquals(-300, g.coins); g.incurFine(); assertEquals(-630, g.coins);
         assertEquals(0, g.days); assertEquals(0, g.nextFine().daysLost(0));
     }
     @Test public void midnightAppliesRequiredPenaltyThenInterest() {
         Game g = game(); g.days = 30; g.coins = 100000; for (int i = 0; i < 3; i++) quest(g, false, true, false);
-        g.advance(MIDNIGHT, UTC); assertEquals(21, g.days); assertEquals(78932, g.coins); assertTrue(g.quests.isEmpty());
+        g.advance(MIDNIGHT, UTC); assertEquals(21, g.days); assertEquals(66827, g.coins); assertTrue(g.quests.isEmpty());
     }
     @Test public void aRequiredRepeatableQuestOnlyNeedsOneCompletion() {
         Game g = game(); complete(g, quest(g, true, true, true), NOW); assertEquals(0, g.requiredPenalty().days);
-        g.advance(MIDNIGHT, UTC); assertEquals(1, g.days); assertEquals(-89, g.coins); assertEquals(2000, g.requiredPenalty().minimum);
+        g.advance(MIDNIGHT, UTC); assertEquals(1, g.days); assertEquals(101, g.coins); assertEquals(1000, g.requiredPenalty().coins(10000));
     }
     @Test public void inactiveDaysDoNotEarnADayButStillEarnInterest() {
         Game g = game(); g.coins = 100; g.advance(MIDNIGHT, UTC); assertEquals(0, g.days); assertEquals(1, g.coins);
@@ -135,18 +135,18 @@ public class GameTest {
     }
     @Test public void offlineCompletionIsProcessedBeforeLaterMidnight() {
         Game g = game(); g.restMinutes = 4; g.start(quest(g, true, true, false), NOW); g.advance(MIDNIGHT, UTC);
-        assertEquals(1, g.days); assertEquals(-89, g.coins); assertNull(g.session); assertEquals(1, g.history.size());
+        assertEquals(1, g.days); assertEquals(101, g.coins); assertNull(g.session); assertEquals(1, g.history.size());
     }
     @Test public void midnightDeadlineAndNewDayRewardAreChronological() {
         Game g = game(); g.days = 10; g.coins = 10000; Game.Quest q = quest(g, true, true, true);
         g.start(q, MIDNIGHT - 30000); g.advance(MIDNIGHT + 1470000, UTC);
-        assertEquals(8, g.days); assertEquals(7914, g.coins); assertFalse(q.done(g.day)); assertEquals(1470000, g.timedMillisToday);
+        assertEquals(8, g.days); assertEquals(9104, g.coins); assertFalse(q.done(g.day)); assertEquals(1470000, g.timedMillisToday);
         assertEquals(MIDNIGHT + 1470000, g.history.get(0).at);
     }
     @Test public void multipleOfflineDaysSettleExactlyOnce() {
         Game g = game(); g.days = 20; g.coins = 10000; quest(g, false, true, true).interval = 2;
-        long later = MIDNIGHT + 2 * 86400000L; g.advance(later, UTC); assertEquals(16, g.days); assertEquals(5711, g.coins);
-        g.advance(later, UTC); assertEquals(5711, g.coins); assertEquals(0, g.finesToday);
+        long later = MIDNIGHT + 2 * 86400000L; g.advance(later, UTC); assertEquals(16, g.days); assertEquals(7831, g.coins);
+        g.advance(later, UTC); assertEquals(7831, g.coins); assertEquals(0, g.finesToday);
     }
     @Test public void liveFocusTimeExcludesRestAndManualTasks() {
         Game g = game(); g.restMinutes = 1; Game.Quest q = quest(g, true, false, true); g.start(q, NOW);
@@ -174,8 +174,8 @@ public class GameTest {
     @Test public void balanceHistoryTracksChangesIncludingNegativeBalancesWithoutDuplicates() {
         Game g = game(); complete(g, quest(g, false, false, true), NOW + 1000); g.recordBalance(NOW + 2000);
         assertEquals(2, g.balances.size()); Game.Fine f = new Game.Fine(); g.fines.add(f); g.incurFine(f, NOW + 3000);
-        assertEquals(3, g.balances.size()); assertEquals(0, g.balances.get(2).cents);
-        g.incurFine(f, NOW + 4000); assertEquals(-1000, g.balances.get(3).cents);
+        assertEquals(3, g.balances.size()); assertEquals(-285, g.balances.get(2).cents);
+        g.incurFine(f, NOW + 4000); assertEquals(-615, g.balances.get(3).cents);
     }
     @Test public void timelineWindowIncludesAllRecordedTime() {
         Game g = game(); assertEquals(g.day, g.timelineStart(g.day)); g.firstOpenedDay = LocalDate.parse("2026-01-01").toEpochDay();
@@ -185,7 +185,8 @@ public class GameTest {
     @Test public void extremeBalancesAndFineEscalationDoNotOverflow() {
         Game g = game(); g.nextBounty = Game.LIMIT; g.coins = Game.LIMIT - 1; complete(g, quest(g, true, false, true), NOW);
         assertEquals(Game.LIMIT, g.coins); assertEquals(Game.LIMIT, g.nextBounty);
-        g.finesToday = 1000; g.incurFine(); assertEquals(0, g.coins); g.incurFine(); assertEquals(-1000, g.coins);
+        g.finesToday = 1000; g.incurFine(); assertEquals(Game.LIMIT * 9 / 10, g.coins);
+        for (int i = 0; i < 100; i++) g.incurFine(); assertEquals(-Game.LIMIT, g.coins);
     }
     @Test public void eurosAlwaysHaveTwoDecimalPlaces() {
         assertEquals("\u20ac0.01", Money.format(1)); assertEquals("\u20ac1.00", Money.format(100));
@@ -196,8 +197,8 @@ public class GameTest {
         List<Game.Event> events = g.completeInstant(q, NOW);
         assertEquals(1, events.size()); assertEquals("victory", events.get(0).type);
         assertNull(g.session); assertEquals(0, g.timedMillisToday); assertEquals(0, g.focusMillisToday(NOW + 10000));
-        assertEquals(10, g.coins); assertEquals(100, g.nextBounty); assertEquals(1, g.history.size());
-        assertTrue(g.completeInstant(q, NOW + 1).isEmpty()); assertEquals(10, g.coins);
+        assertEquals(30, g.coins); assertEquals(100, g.nextBounty); assertEquals(1, g.history.size());
+        assertTrue(g.completeInstant(q, NOW + 1).isEmpty()); assertEquals(30, g.coins);
     }
     @Test public void legacyZeroTimeRepeatableQuestsUseSettingsAndCannotCompleteInstantly() {
         Game g = game(); g.restMinutes = 4; Game.Quest q = quest(g, true, false, true); q.questMinutes = 0;
@@ -236,11 +237,11 @@ public class GameTest {
         g.start(q, NOW + 100000); g.advance(NOW + 1549999, UTC); assertEquals(0, g.coins);
         g.advance(NOW + 1550000, UTC); assertEquals(Game.REST, g.session.phase); assertEquals(100, g.coins);
     }
-    @Test public void mandatoryPenaltiesAtZeroAreFlatAndAbsentPenaltiesStayZero() {
+    @Test public void mandatoryPenaltiesCreateDebtAndAbsentPenaltiesStayZero() {
         Game g = game(); assertEquals(0, g.requiredPenalty().coins(0));
         quest(g, false, true, false); quest(g, false, true, false);
-        assertEquals(1000, g.requiredPenalty().coins(0)); assertEquals(50, g.requiredPenalty().coins(50));
-        g.advance(MIDNIGHT, UTC); assertEquals(-1100, g.coins);
+        assertEquals(630, g.requiredPenalty().coins(0)); assertEquals(630, g.requiredPenalty().coins(50));
+        g.advance(MIDNIGHT, UTC); assertEquals(-730, g.coins);
     }
     @Test public void reportingALawResetsBountyAndKeepsHistory() {
         Game g = game(); g.nextBounty = 163;
@@ -283,14 +284,14 @@ public class GameTest {
         Game.Quest q = quest(g, false, true, false); q.name = "Must do";
         g.advance(MIDNIGHT, UTC); assertEquals(1, g.missedReviews.size());
         assertEquals("Must do", g.missedReviews.get(0).names.get(0));
-        assertEquals(7904, g.coins); assertEquals(8, g.days);
+        assertEquals(8904, g.coins); assertEquals(8, g.days);
         g.resolveMissed(true, MIDNIGHT + 1, UTC);
         assertEquals(9904, g.coins); assertEquals(11, g.days); assertEquals(q.id, g.history.get(0).id);
         g.resolveMissed(true, MIDNIGHT + 2, UTC); assertEquals(9904, g.coins);
     }
     @Test public void acknowledgingMissedTasksKeepsPenalty() {
         Game g = game(); quest(g, false, true, false); g.advance(MIDNIGHT, UTC);
-        g.resolveMissed(false, MIDNIGHT + 1, UTC); assertEquals(-1100, g.coins);
+        g.resolveMissed(false, MIDNIGHT + 1, UTC); assertEquals(-400, g.coins);
         assertTrue(g.missedReviews.isEmpty()); assertTrue(g.history.isEmpty());
     }
     @Test public void completedSingleQuestsDisappearWithoutAllowingAnotherReward() {
@@ -300,6 +301,7 @@ public class GameTest {
         List<Game.Quest> board = g.availableQuests();
         assertEquals(2, board.size()); assertFalse(board.contains(done));
         assertFalse(g.canStart(done)); assertTrue(g.completeInstant(done, NOW + 1).isEmpty());
-        assertEquals(30, g.coins);
+        assertEquals(15, g.coins);
     }
 }
+

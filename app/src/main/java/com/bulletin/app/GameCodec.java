@@ -22,6 +22,9 @@ final class GameCodec {
     static JSONObject encode(Game g) throws JSONException { return CompactSave.pack(encodeLegacy(g)); }
     static JSONObject encodeLegacy(Game g) throws JSONException {
         JSONObject o = new JSONObject();
+        if(g.soundVolume!=SoundVolume.DEFAULT)o.put("soundVolume",SoundVolume.percent(g.soundVolume));
+        o.put("completionLog",g.completionLog.encode());
+        o.put("youtubeBookmarks",g.youtubeBookmarks).put("mustDoLog",g.mustDoLog.encode());
         if (!g.briefShowTitles) o.put("briefShowTitles", false);
         if (g.timelineHintShown) o.put("timelineHintShown", true);
         if (g.choiceHintShown) o.put("choiceHintShown", true);
@@ -58,7 +61,7 @@ final class GameCodec {
             .put("bountyBase", g.bountyBase)
             .put("randomMode", g.randomMode).put("randomDay", g.randomDay).put("randomQuestIds", new JSONArray(g.randomQuestIds))
             .put("pendingCoins", g.pendingCoins).put("nextBounty", g.nextBounty)
-            .put("completedToday", g.completedToday).put("finesToday", g.finesToday)
+            .put("completedToday", g.completedToday).put("finesToday", g.finesToday).put("previousFinePenalty", g.previousFinePenalty)
             .put("questMinutes", g.questMinutes).put("restMinutes", g.restMinutes)
             .put("energy", g.energy)
             .put("questsCreated", g.questsCreated).put("lawsCreated", g.lawsCreated)
@@ -70,7 +73,7 @@ final class GameCodec {
         o.put("deletedQuests", deleted).put("excludedRandomCategories", new JSONArray(g.excludedRandomCategories));
         JSONArray fines = new JSONArray();
         for (Game.Fine fine : g.fines) fines.put(new JSONObject().put("id", fine.id).put("name", fine.name).put("emoji", fine.emoji)
-            .put("mode", fine.mode).put("amountLimit", fine.amountLimit).put("amountUsed", fine.amountUsed)
+            .put("mode", fine.mode).put("amountLimit", fine.amountLimit).put("amountUsed", fine.amountUsed).put("previousPenalty", fine.previousPenalty)
             .put("timeLimitMillis", fine.timeLimitMillis).put("remainingMillis", fine.remainingMillis).put("endsAt", fine.endsAt));
         o.put("fines", fines);
         if (g.session != null) {
@@ -158,7 +161,7 @@ final class GameCodec {
         if (categories != null) for (int i = 0; i < categories.length(); i++) {
             JSONObject v = categories.getJSONObject(i); Game.Category c = new Game.Category();
             c.id = v.getString("id"); c.name = v.getString("name"); c.hue = Math.max(-1, Math.min(359, v.optInt("hue", -1))); c.collapsed = v.optBoolean("collapsed");
-            c.mustDo = v.optBoolean("mustDo"); c.requireAll = v.optBoolean("requireAll"); c.requiredTasks = Math.max(1, Math.min(999999, v.optInt("requiredTasks", 1)));
+            c.mustDo = v.optBoolean("mustDo"); c.requireAll = v.optBoolean("requireAll"); c.requiredTasks = Math.max(0, Math.min(999999, v.optInt("requiredTasks", 1)));
             c.progressDay = v.optLong("progressDay", Long.MIN_VALUE); c.progressCount = Math.max(0, v.optInt("progressCount"));
             c.fulfilledDay = v.optLong("fulfilledDay", Long.MIN_VALUE); c.fulfilledTarget = Math.max(0, v.optInt("fulfilledTarget"));
             JSONArray doneIds = v.optJSONArray("completedQuestIds"); if (doneIds != null) for (int j = 0; j < doneIds.length(); j++) c.completedQuestIds.add(doneIds.getString(j));
@@ -190,10 +193,12 @@ final class GameCodec {
         }
         g.completedToday = Math.max(0, o.optInt("completedToday"));
         g.finesToday = Math.max(0, Math.min(1000, o.optInt("finesToday")));
+        g.previousFinePenalty = Math.max(-1, Math.min(Game.LIMIT, o.optLong("previousFinePenalty", -1)));
         g.questMinutes = Math.max(1, Math.min(240, o.optInt("questMinutes", 15)));
         g.energy = Math.max(Game.EXTRA, Math.min(Game.RELAX, o.optInt("energy", Game.NORMAL)));
         g.restMinutes = Math.max(0, Math.min(120, o.optInt("restMinutes", 4)));
         g.hue = (float) o.optDouble("hue", 186);
+        g.soundVolume=SoundVolume.percent(o.optInt("soundVolume",SoundVolume.DEFAULT));
         if (version >= 3) g.lastSettlement = o.optString("lastSettlement");
         JSONArray quests = o.getJSONArray("quests");
         for (int i = 0; i < quests.length(); i++) {
@@ -216,6 +221,7 @@ final class GameCodec {
             JSONObject v = fines.getJSONObject(i);
             Game.Fine f = new Game.Fine(); f.id = v.getString("id"); f.name = v.getString("name");
             f.emoji = v.optString("emoji");
+            f.previousPenalty = Math.max(-1, Math.min(Game.LIMIT, v.optLong("previousPenalty", -1)));
             f.mode = Math.max(Game.STRICT, Math.min(Game.TIMED, v.optInt("mode", Game.STRICT)));
             f.amountLimit = Math.max(1, Math.min(999999, v.optInt("amountLimit", 3)));
             f.amountUsed = Math.max(0, Math.min(Integer.MAX_VALUE - 1, v.optInt("amountUsed")));
@@ -289,6 +295,10 @@ final class GameCodec {
         for (Game.HistoryEntry e : g.history) (e.kind.equals(Game.QUEST_HISTORY) ? knownQuests : knownLaws).add(e.id);
         g.questsCreated = Math.max(knownQuests.size(), o.optInt("questsCreated", knownQuests.size()));
         g.lawsCreated = Math.max(knownLaws.size(), o.optInt("lawsCreated", knownLaws.size()));
+        if(o.has("youtubeBookmarks"))g.youtubeBookmarks=o.getJSONArray("youtubeBookmarks");
+        if(o.has("completionLog")) g.completionLog.decode(o.getJSONObject("completionLog"));
+        else g.completionLog.importHistory(g.history,zone);
+        if(o.has("mustDoLog"))g.mustDoLog.decode(o.getJSONObject("mustDoLog"));
         g.questTimelineStart=o.optLong("questTimelineStart");g.questTimelineEnd=o.optLong("questTimelineEnd");g.lawTimelineStart=o.optLong("lawTimelineStart");g.lawTimelineEnd=o.optLong("lawTimelineEnd");g.nextEntityId=Math.max(1,o.optLong("nextEntityId",1));
         return g;
     }
@@ -309,7 +319,8 @@ final class GameCodec {
                 for (Game.UndoEntry old : g.undo) if (old.questId.equals(quest.id)) { recorded = true; break; }
                 if (!recorded) {
                     Game.UndoEntry restored = new Game.UndoEntry(); restored.questId = quest.id; restored.at = e.at;
-                    restored.reward = Game.scaledBounty(before, required, 0, g.questMinutes);
+                    // Refund the recorded reward, or the historical 10% Must Do rate if it was never recorded.
+                    restored.reward = e.coinsKnown?Math.max(0,e.coinsDelta):required?(before+9)/10:before;
                     restored.bountyBefore = before; restored.bountyAfter = base; g.undo.add(restored);
                 }
             }
@@ -362,3 +373,4 @@ final class GameCodec {
     }
     private static long bound(long n) { return Math.max(0, Math.min(Game.LIMIT, n)); }
 }
+

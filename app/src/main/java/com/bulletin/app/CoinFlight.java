@@ -32,6 +32,10 @@ final class CoinFlight extends View {
     private int rainCount;
     private String rewardText;
     private float rewardX, rewardY;
+    private float waveX,waveY,waveRadius;
+    private int waveColor;
+    private final int[] waveSource=new int[2],waveOrigin=new int[2];
+    private final android.graphics.Path wavePath=new android.graphics.Path();
     CoinFlight(Context context) {
         super(context);
         density = getResources().getDisplayMetrics().density;
@@ -39,6 +43,17 @@ final class CoinFlight extends View {
         setClickable(false);
     }
     void fail() { failureAt = android.os.SystemClock.uptimeMillis(); invalidate(); }
+    void completionWave(View source,float x,float y,float radius,int color) {
+        completionWave(source,x,y,radius,color,true);
+    }
+    void completionWave(View source,float x,float y,float radius,int color,boolean fitToScreen) {
+        if(radius<=0&&waveRadius<=0)return;
+        source.getLocationOnScreen(waveSource);getLocationOnScreen(waveOrigin);
+        waveX=waveSource[0]-waveOrigin[0]+x;waveY=waveSource[1]-waveOrigin[1]+y;waveRadius=radius;waveColor=color;postInvalidateOnAnimation();
+        float edge=radius*1.07f+12*density;
+        if(radius>0&&fitToScreen){waveX=Math.max(edge,Math.min(getWidth()-edge,waveX));waveY=Math.max(edge,Math.min(getHeight()-edge,waveY));}
+    }
+    void clearCompletionWave(){waveRadius=0;invalidate();}
     void death() {
         if (!Feedback.motion(getContext())) return;
         deathAt = android.os.SystemClock.uptimeMillis(); setClickable(true); invalidate();
@@ -60,7 +75,7 @@ final class CoinFlight extends View {
     void reward(String text, float x, float y) {
         int[] origin = new int[2]; getLocationOnScreen(origin);
         rewardX = x < 0 ? getWidth() / 2f : x - origin[0];
-        rewardY = y < 0 ? getHeight() / 2f : y - origin[1];
+        rewardY = y < 0 ? getHeight() * .44f : y - origin[1];
         rewardText = text; rewardAt = android.os.SystemClock.uptimeMillis(); invalidate();
         for (int i = 0; i < burstColors.length; i++) {
             burstColors[i] = confettiColor(); burstAngles[i] = random.nextFloat() * 6.28f; burstLengths[i] = 45 + random.nextFloat() * 65;
@@ -81,7 +96,18 @@ final class CoinFlight extends View {
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         long now = android.os.SystemClock.uptimeMillis();
-        if (!Feedback.motion(getContext())) { particles.clear(); failureAt = rewardAt = rainAt = deathAt = 0; setClickable(false); return; }
+        boolean motion=Feedback.motion(getContext());
+        if (!motion) { particles.clear(); failureAt = rainAt = deathAt = 0; setClickable(false); }
+        if(motion&&waveRadius>0){
+            wavePath.reset();double phase=now/350d;
+            for(int point=0;point<80;point++){
+                double angle=point*Math.PI*2/80;
+                float r=waveRadius*(1+.045f*(float)Math.sin(angle*5+phase)+.025f*(float)Math.sin(angle*9-phase*.7));
+                float x=waveX+r*(float)Math.cos(angle),y=waveY+r*(float)Math.sin(angle);
+                if(point==0)wavePath.moveTo(x,y);else wavePath.lineTo(x,y);
+            }
+            wavePath.close();paint.setStyle(Paint.Style.FILL);paint.setColor(waveColor);paint.setAlpha(255);canvas.drawPath(wavePath,paint);postInvalidateOnAnimation();
+        }
         if (rainAt > 0 && now - rainAt < 4000) {
             float elapsed = (now - rainAt) / 1000f;
             paint.setStyle(Paint.Style.FILL);
@@ -101,12 +127,15 @@ final class CoinFlight extends View {
             }
             paint.setAlpha(255); postInvalidateOnAnimation();
         }
-        if (rewardAt > 0 && now - rewardAt < 700) {
-            float t = (now - rewardAt) / 700f;
-            paint.setStyle(Paint.Style.FILL); paint.setColor(Ui.GREEN); paint.setAlpha((int) (255 * (1 - t)));
-            paint.setTextSize(20 * density); paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(rewardText, rewardX, rewardY - 32 * density * t, paint);
-            for (int i = 0; i < burstColors.length; i++) {
+        if (rewardAt > 0 && now - rewardAt < CompletionVisuals.REWARD_MILLIS) {
+            float t = (now - rewardAt) / (float) CompletionVisuals.REWARD_MILLIS;
+            paint.setStyle(Paint.Style.FILL); paint.setColor(Ui.GREEN); paint.setAlpha((int) (255 * CompletionVisuals.rewardAlpha(now-rewardAt)));
+            paint.setTextSize(44 * density); paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(Math.min(44*density,paint.getTextSize()*(getWidth()-32*density)/Math.max(1,paint.measureText(rewardText))));
+            paint.setShadowLayer(4*density,2*density,3*density,0xcc000000);
+            canvas.drawText(rewardText, rewardX, rewardY - (motion?56 * density * t:0), paint);
+            paint.clearShadowLayer();
+            for (int i = 0; motion && i < burstColors.length; i++) {
                 double angle = burstAngles[i];
                 float radius = (12 + burstLengths[i] * t) * density;
                 paint.setColor(burstColors[i]); paint.setAlpha((int) (255 * (1 - t)));

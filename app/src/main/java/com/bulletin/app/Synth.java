@@ -20,7 +20,10 @@ public final class Synth {
     private final Set<Integer> loaded = new HashSet<>();
     private final Set<Integer> queued = new HashSet<>();
     private long lastPlayedAt;
+    private long lastCashAt;
     private int activeStream;
+    private int volumePercent=SoundVolume.DEFAULT;
+    private final java.util.LinkedHashMap<Integer,Float> playingVolumes=new java.util.LinkedHashMap<>();
     private long warningUntil;
     private Runnable warningStarted;
     private android.media.MediaPlayer alarm;
@@ -54,7 +57,7 @@ public final class Synth {
     }
     public void play(int effect) {
         if (effect == WARNING && alarm != null) {
-            queued.clear(); if (activeStream != 0) pool.stop(activeStream);
+            if (activeStream != 0) pool.stop(activeStream);
             alarm.seekTo(0); alarm.start(); warningUntil = android.os.SystemClock.uptimeMillis() + warningDurationMillis;
             if (warningStarted != null) { Runnable started = warningStarted; warningStarted = null; started.run(); }
             return;
@@ -62,19 +65,40 @@ public final class Synth {
         int id = ids[effect];
         if (id == 0) return;
         if (loaded.contains(id)) playLoaded(id);
-        else if (effect == WARNING || !queued.contains(ids[WARNING])) { queued.clear(); queued.add(id); }
+        else queued.add(id); // Preserve task/rest alerts if they arrive while effects are loading.
     }
     public void playWarning(Runnable started) { warningStarted = started; play(WARNING); }
+    public void setVolume(int percent) {
+        percent=SoundVolume.percent(percent);if(volumePercent==percent)return;volumePercent=percent;
+        if(alarm!=null){float level=SoundVolume.scale(.75f,percent);alarm.setVolume(level,level);}
+        for(java.util.Map.Entry<Integer,Float> stream:playingVolumes.entrySet()){
+            float level=SoundVolume.scale(stream.getValue(),percent);pool.setVolume(stream.getKey(),level,level);
+        }
+    }
+    private int playStream(int id) {
+        float base=baseVolume(id),level=SoundVolume.scale(base,volumePercent);int stream=pool.play(id,level,level,1,0,1);
+        if(stream!=0){playingVolumes.put(stream,base);if(playingVolumes.size()>8)playingVolumes.remove(playingVolumes.keySet().iterator().next());}
+        return stream;
+    }
     private void playLoaded(int id) {
         long now = android.os.SystemClock.uptimeMillis();
+        // Timer milestones must not be throttled, interrupted or replace one another.
+        if (id == ids[VICTORY] || id == ids[DING]) { playStream(id); return; }
+        // The cash cue follows a 200 ms check stroke and layers over the victory sound.
+        if (id == ids[COIN]) {
+            if (now < warningUntil || now - lastCashAt < 150) return;
+            lastCashAt = now;
+            playStream(id);
+            return;
+        }
         if (id != ids[WARNING] && (now - lastPlayedAt < 220 || now < warningUntil)) return;
         if (id == ids[WARNING]) warningUntil = now + WARNING_MILLIS;
         lastPlayedAt = now;
         if (activeStream != 0) pool.stop(activeStream);
-        float volume = volume(id); activeStream = pool.play(id, volume, volume, 1, 0, 1);
+        activeStream = playStream(id);
         if (id == ids[WARNING] && warningStarted != null) { Runnable started = warningStarted; warningStarted = null; started.run(); }
     }
-    private float volume(int id) { return id == ids[WARNING] ? .75f : id == ids[DING] ? .25f : id == ids[COIN] ? .2f : id == ids[FAILURE] ? .3f : .45f; }
+    private float baseVolume(int id) { return id == ids[WARNING] ? .75f : id == ids[DING] ? .25f : id == ids[COIN] ? .2f : id == ids[FAILURE] ? .3f : .45f; }
     static byte[] wav(int kind) {
         int rate = 22050;
         double duration = kind == WARNING ? WARNING_MILLIS / 1000d : kind == VICTORY ? 1.15 : kind == DING ? .85 : kind == FAILURE ? .8 : .18;

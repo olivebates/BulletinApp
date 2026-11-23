@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
+    private static final String MUST_DO_EDIT_NOTICE="You must complete the Must Do quests before you can change this.";
     private GameStore store;
     private Game game;
     private Ui ui;
@@ -78,7 +79,7 @@ public final class MainActivity extends Activity {
     private View ungroupedDrop;
     private FrameLayout frame;
     private LinearLayout root;
-    private TextView daysValue, coinsValue, timerValue, focusValue;
+    private TextView daysValue, coinsValue, timerValue, focusValue; private boolean activeTimeRevealed;
     private View coinTarget;
     private CoinFlight flight;
     private BalanceGraph balanceGraph;
@@ -99,7 +100,7 @@ public final class MainActivity extends Activity {
     private TextView receipt;
     private android.animation.ValueAnimator counterAnimation;
     private long displayedCoins, displayedDays;
-    private boolean countersInitialized, completingCard;
+    private boolean countersInitialized, completingCard, completionCelebrating, showingMustDoCompletion;
     private float rewardX = -1, rewardY = -1;
     private long lastPenaltyAt;
     private final java.util.Map<String, View> questViews = new java.util.HashMap<>();
@@ -130,7 +131,7 @@ public final class MainActivity extends Activity {
             if (!resumed) return;
             accountRandomUsage();
             store.sync();
-            if (completingCard || boardDragId != null) { ticker.postDelayed(this, 250); return; }
+            if (completingCard || completionCelebrating || boardDragId != null) { ticker.postDelayed(this, 250); return; }
             if (renderedRevision != store.revision && tab != 2 && tab != 3) render();
             if (tab == 2 && balanceGraph != null && renderedRevision != store.revision) {
                 balanceGraph.invalidate(); renderedRevision = store.revision;
@@ -140,7 +141,7 @@ public final class MainActivity extends Activity {
             showWarning();
             showNotices();
             showMissedReview();
-            if (tab == 0 && !questTimelines && game.session == null && dialog == null && !deathPlaying && game.missedReviews.isEmpty() && game.pendingConfetti > 0) {
+            if (tab == 0 && !questTimelines && game.session == null && dialog == null && !deathPlaying && game.missedReviews.isEmpty() && game.pendingConfetti > 0 && game.completionLog.pending.isEmpty() && !game.mustDoLog.hasPending(game.day)) {
                 int celebration = game.pendingConfetti; game.pendingConfetti = 0;
                 store.save(); renderedRevision = store.revision;
                 flight.rain(celebration > 1);
@@ -181,7 +182,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);setIntent(intent);
-        if(intent.hasExtra("navigateTab")){tab=Math.max(0,Math.min(3,intent.getIntExtra("navigateTab",0)));questTimelines=false;fineTimelines=false;if(tab==3&&intent.getBooleanExtra("toolsHome",false))toolsPage=0;intent.removeExtra("navigateTab");intent.removeExtra("toolsHome");store.sync();render();}
+        if(intent.hasExtra("navigateTab")){activeTimeRevealed=false;tab=Math.max(0,Math.min(3,intent.getIntExtra("navigateTab",0)));questTimelines=false;fineTimelines=false;if(tab==3&&intent.getBooleanExtra("toolsHome",false))toolsPage=0;intent.removeExtra("navigateTab");intent.removeExtra("toolsHome");store.sync();render();}
     }
     private boolean navigateBack() {
         if (tab == 3 && toolsPage == 1 && toolNamesArrange[toolsTool]) { toolNamesArrange[toolsTool] = false; render(); return true; }
@@ -229,6 +230,10 @@ public final class MainActivity extends Activity {
             frame.post(this::startLawImpacts);
         };
         store.sync(); render(); ensureTimer();
+        if(Build.VERSION.SDK_INT>=33&&!getPreferences(0).getBoolean("reminderPermissionAsked",false)){
+            getPreferences(0).edit().putBoolean("reminderPermissionAsked",true).apply();
+            if(checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},10);
+        }
         if (!game.welcomeShown) {
             game.welcomeShown = true; store.save(); renderedRevision = store.revision;
             showInformation("Welcome!\n\nThis app is designed to make good habits more rewarding and bad habits easier to resist.\n\nCreate quests for activities you want to do more often, and set laws to discourage habits you want to quit. Choose an activity, focus on it, and earn a bounty. Or you can let the app pick two options when you’re unsure what to do next.\n\nTrack where your time goes, see your progress, and make each day a little more intentional.");
@@ -246,12 +251,12 @@ public final class MainActivity extends Activity {
         resumed = false; accountRandomUsage();
         if (deathPlaying) { deathPlaying = false; deathReviewShown = null; }
         if (boardDragId != null) { if (dragArrangement != null) dragArrangement.restore(game); boardDragId = null; draggingCategory = false; boardMovePending = false; store.save(); }
-        completingCard = false;
+        completingCard = false; completionCelebrating = false;
         for (View card : questViews.values()) card.animate().cancel();
         ticker.removeCallbacks(tick);
         stopAnimation();
         store.sync(); store.save();
-        super.onPause();
+        activeTimeRevealed=false;super.onPause();
     }
     @Override protected void onDestroy() {
         if (pasteNotice != null) pasteNotice.dismiss();
@@ -292,6 +297,8 @@ public final class MainActivity extends Activity {
         if (before <= 10000 && game.randomModeUsedMillis > 10000) store.save();
     }
     private void render() {
+        completionCelebrating=false;
+        showingMustDoCompletion=tab==0&&!questRearrange&&!questTimelines&&game.completionLog.pending.isEmpty()&&game.mustDoLog.hasPending(game.day)&&(game.session==null||game.session.phase==Game.REST);
         accountRandomUsage();
         if (toolListDrag != null) { toolListDrag.cancel(); toolListDrag = null; }
         if (briefEditor != null) { briefEditor.captureState(); briefEditor = null; }
@@ -332,6 +339,8 @@ public final class MainActivity extends Activity {
         if (tab == 3) buildTools(body);
         else if (tab == 2) buildSettings(body);
         else if (tab == 0 ? questTimelines && game.questControlsUnlocked() : fineTimelines && game.lawControlsUnlocked()) buildTimelines(body);
+        else if (tab == 0 && !questRearrange && !game.completionLog.pending.isEmpty() && (game.session == null || game.session.phase == Game.REST)) buildCompletion(body);
+        else if (showingMustDoCompletion) buildMustDoCompletion(body);
         else if (tab == 0 && game.session != null && !questRearrange) buildTimer(body);
         else {
             buildBoard(body);
@@ -361,7 +370,9 @@ public final class MainActivity extends Activity {
         }
         addNavigation();
         }
-        flight = new CoinFlight(this);
+        if(flight==null)flight=new CoinFlight(this);
+        else if(flight.getParent() instanceof ViewGroup)((ViewGroup)flight.getParent()).removeView(flight);
+        flight.clearCompletionWave();
         frame.addView(flight, new FrameLayout.LayoutParams(-1, -1));
         receipt = text("", 14, ui.text);
         receipt.setGravity(Gravity.CENTER); receipt.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12));
@@ -375,7 +386,7 @@ public final class MainActivity extends Activity {
         if (resumed && tab == 0 && game.pendingCoins > 0 && game.missedReviews.isEmpty()) {
             long award = game.takePendingCoins();
             store.save(); renderedRevision = store.revision;
-            if (store.notices.stream().noneMatch(n -> n.earned > 0)) frame.post(() -> animateReward(award));
+            if (!showingMustDoCompletion && game.completionLog.pending.isEmpty() && store.notices.stream().noneMatch(n -> n.earned > 0)) frame.post(() -> animateReward(award));
         }
         frame.post(() -> {
             startLawImpacts();
@@ -397,6 +408,42 @@ public final class MainActivity extends Activity {
         if (tab != 2 && tab != 3) words.addView(subtitle);
         header.addView(words, new LinearLayout.LayoutParams(0, -1, 1));
         root.addView(header, spaced(-1, 64));
+    }
+    private void buildCompletion(FrameLayout body) {
+        String id=game.completionLog.pending.get(0).id;
+        String name="Task completed";long firstDay=game.completionLog.latestDay(id);
+        for(Game.Quest q:game.quests) if(q.id.equals(id)){name=q.name;firstDay=q.firstDay;break;}
+        LinearLayout content=column();content.setGravity(Gravity.CENTER_HORIZONTAL);content.setPadding(ui.dp(12),ui.dp(12),ui.dp(12),ui.dp(8));
+        TextView heading=text(name,20,Ui.GREEN);heading.setGravity(Gravity.CENTER);heading.setTypeface(Typeface.DEFAULT_BOLD);content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
+        final long earned=game.completionLog.earned(id);final boolean grand=game.completionLog.grand(id);
+        CompletionColumn[] column=new CompletionColumn[1];
+        column[0]=new CompletionColumn(this,ui,game.completionLog,id,firstDay,game.day,()->{
+            completionCelebrating=true;game.completionLog.acknowledge(id);
+            if(game.completionLog.pending.isEmpty())game.pendingConfetti=0;
+            store.save();renderedRevision=store.revision;store.sounds.play(Synth.VICTORY);
+        },()->{
+            if(!resumed)return;
+            flight.reward("+"+Money.format(earned),-1,-1);flight.rain(grand);store.sounds.play(Synth.COIN);
+            animateCounters(counterDays(),counterCoins());
+        },()->{
+            column[0].setVisibility(View.INVISIBLE);
+            effects.postDelayed(()->{if(resumed&&completionCelebrating){completionCelebrating=false;render();}},1000);
+        });
+        column[0].setWaveRenderer((source,x,y,radius,color)->{if(flight!=null)flight.completionWave(source,x,y,radius,color,false);});
+        LinearLayout.LayoutParams columnParams=new LinearLayout.LayoutParams(-1,0,1);columnParams.gravity=Gravity.CENTER_HORIZONTAL;
+        content.addView(column[0],columnParams);
+        body.addView(content,new FrameLayout.LayoutParams(-1,-1));
+    }
+    private void buildMustDoCompletion(FrameLayout body) {
+        LinearLayout content=column();content.setGravity(Gravity.CENTER);content.setPadding(ui.dp(12),ui.dp(16),ui.dp(12),ui.dp(12));
+        TextView heading=text("You completed your Must Do's!",22,Ui.GOLD);heading.setGravity(Gravity.CENTER);heading.setTypeface(Typeface.DEFAULT_BOLD);
+        content.addView(heading,new LinearLayout.LayoutParams(-1,-2));
+        long day=game.day;
+        MustDoCalendar calendar=new MustDoCalendar(this,ui,game.mustDoLog,day,()->{
+            completionCelebrating=true;game.mustDoLog.acknowledge(day);game.pendingConfetti=0;store.save();renderedRevision=store.revision;store.sounds.play(Synth.VICTORY);
+        },()->{if(resumed)flight.rain(true);},()->{if(resumed&&completionCelebrating){completionCelebrating=false;render();}});
+        calendar.setWaveRenderer((source,x,y,radius,color)->{if(flight!=null)flight.completionWave(source,x,y,radius,color);});
+        content.addView(calendar,new LinearLayout.LayoutParams(-1,-2));body.addView(content,new FrameLayout.LayoutParams(-1,-1));
     }
     private List<Game.Quest> visibleQuests() {
         List<String> before = new ArrayList<>(game.randomQuestIds);
@@ -564,7 +611,7 @@ public final class MainActivity extends Activity {
         }
     }
     private View categoryRow(Game.Category c) {
-        FrameLayout line = new FrameLayout(this); line.setMinimumHeight(ui.dp(32));
+        FrameLayout line = new FrameLayout(this); line.setLayoutParams(new LinearLayout.LayoutParams(-1,ui.dp(32))); line.setMinimumHeight(ui.dp(32));
         Ui palette = new Ui(this, c.hue >= 0 ? c.hue : game.hue);
         boolean active = game.categoryActive(c);
         String title = game.categoryTitle(c);
@@ -762,12 +809,15 @@ public final class MainActivity extends Activity {
         String description = (quest.repeatable ? "REPEATABLE" : "ONCE TODAY") + (required ? "  /  MUST FINISH" : "  /  OPTIONAL");
         Ui palette = questPalette(quest);
         LinearLayout card = card(quest.name, "", required ? "clock" : "bulletin", palette);
+        int completions=quest.done(game.day)?quest.completions:0;
+        int outline=completions>0?CompletionVisuals.completedOutline(palette.border,completions):required?Ui.GOLD:palette.border;
+        card.setBackground(palette.questButton(outline,required,completions));
         if (required) {
-            card.setBackground(palette.requiredButton());
             LinearLayout copy = (LinearLayout) card.getChildAt(1);
             ((TextView) copy.getChildAt(0)).setTypeface(Typeface.DEFAULT, Typeface.BOLD);
             TextView badge = text("MUST DO", 9, Ui.GOLD); badge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            badge.setPadding(0, ui.dp(3), 0, 0); copy.addView(badge);
+            LinearLayout status=row();badge.setPadding(0,ui.dp(3),0,0);status.addView(badge);
+            TextView fine=text("Fine if unfinished",9,Ui.RED);fine.setPadding(ui.dp(6),ui.dp(3),0,0);fine.setSingleLine(true);status.addView(fine);copy.addView(status);
         }
         setEmojiIcon(card, quest.emoji, palette);
         card.removeViewAt(card.getChildCount() - 1);
@@ -790,9 +840,9 @@ public final class MainActivity extends Activity {
         } else {
             terms.addView(palette.icon("exclamation", palette.border, 18));
         }
-        TextView bounty = text(required ? "Fine if unfinished" : "+" + Money.format(game.bountyFor(quest, System.currentTimeMillis())), 11, required ? Ui.RED : Ui.GREEN);
+        TextView bounty = text("+" + Money.format(game.bountyFor(quest, System.currentTimeMillis())), 11, Ui.GREEN);
         bounty.setPadding(0, ui.dp(3), 0, 0); terms.addView(bounty, new LinearLayout.LayoutParams(-2, -2));
-        if (!required) bountyLabels.put(quest.id, bounty);
+        bountyLabels.put(quest.id, bounty);
         card.addView(terms, new LinearLayout.LayoutParams(-2, -1));
         }
         if (rearranging()) immediateDrag(addDragGrip(card), card, quest);
@@ -977,7 +1027,7 @@ public final class MainActivity extends Activity {
         if (timerValue != null && game.session != null) changedText(timerValue, (game.session.phase == Game.QUEST ? game.session.questName + "\n" : "Take a rest.\nThink about the good you just did.\n") + TimerService.format(game.session.endsAt - System.currentTimeMillis()));
         if (focusValue != null) {
             long seconds = game.focusMillisToday(System.currentTimeMillis()) / 1000;
-            changedText(focusValue, String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60));
+            changedText(focusValue, activeTimeRevealed?String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60):"Tap to show");
             focusValue.setContentDescription("Time spent on timed quests today: " + focusValue.getText());
         }
     }
@@ -1152,8 +1202,8 @@ public final class MainActivity extends Activity {
         FrameLayout.LayoutParams toggle = new FrameLayout.LayoutParams(ui.dp(32), ui.dp(32), Gravity.START | controlGravity);
         toggle.setMargins(ui.dp(canRearrange ? 64 : 32), 0, 0, controlBottom); footer.addView(view, toggle);
         LinearLayout values = row(); values.setGravity(Gravity.CENTER);
-        Game.Penalty penalty = tab == 1 ? game.nextFine() : game.requiredPenalty();
-        TextView fine = text((tab == 0 ? "Undone quests fine" : "Fine Amount") + "\n−" + compact(penalty.daysLost(game.days)) + " days\n" + Money.format(-penalty.coins(game.coins)), 9, Ui.RED);
+        Game.Penalty penalty = tab == 1 ? game.nextLawFine() : game.requiredPenalty();
+        TextView fine = text((tab == 0 ? "Undone quests fine" : "Fine from") + "\n−" + compact(penalty.daysLost(game.days)) + " days\n" + Money.format(-penalty.coins(game.coins)), 9, Ui.RED);
         fine.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL); fine.setContentDescription(penalty.daysLost(game.days) + " days and " + Money.format(penalty.coins(game.coins)) + " penalty");
         values.addView(fine, new LinearLayout.LayoutParams(-2, -1));
         FrameLayout.LayoutParams valueParams = new FrameLayout.LayoutParams(-2, ui.dp(32), Gravity.CENTER);
@@ -1162,7 +1212,7 @@ public final class MainActivity extends Activity {
             LinearLayout activeTime = column(); activeTime.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             TextView activeTimeTitle = text("Active Time", 9, ui.muted); activeTimeTitle.setSingleLine();
             activeTime.addView(activeTimeTitle, new LinearLayout.LayoutParams(-2, -2));
-            focusValue = text("", 9, ui.text); focusValue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL); focusValue.setSingleLine();
+            focusValue = text("", 9, ui.text); focusValue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL); focusValue.setSingleLine();focusValue.setOnClickListener(v->{activeTimeRevealed=true;updateTimer();});
             activeTime.addView(focusValue, new LinearLayout.LayoutParams(-2, -2));
             FrameLayout.LayoutParams time = new FrameLayout.LayoutParams(-2, ui.dp(32), Gravity.END | controlGravity);
             time.setMargins(0, 0, ui.dp(game.questControlsUnlocked() ? 72 : !game.deletedQuests.isEmpty() ? 40 : 8), controlBottom); footer.addView(activeTime, time);
@@ -1230,7 +1280,7 @@ public final class MainActivity extends Activity {
             item.setBackground(ui.button(tab == index ? ui.text : ui.border));
             item.setFocusable(true); item.setContentDescription(labels[i]); item.setSelected(tab == index);
             TextView label = text(labels[i], 9, tab == index ? ui.text : ui.muted); label.setGravity(Gravity.CENTER); item.addView(label);
-            item.setOnClickListener(v -> { if (tab != index || index == 3 && toolsPage > 0) { if (briefEditor != null) briefEditor.freezeState(); if (choiceEditor != null) choiceEditor.freezeState(); hideKeyboard(); store.sync(); questTimelines = false; fineTimelines = false; if (tab == 3 && index == 3) toolsPage = 0; tab = index; render(); } });
+            item.setOnClickListener(v -> { if (tab != index || index == 3 && toolsPage > 0) { if (briefEditor != null) briefEditor.freezeState(); if (choiceEditor != null) choiceEditor.freezeState(); hideKeyboard(); store.sync(); questTimelines = false; fineTimelines = false; if (tab == 3 && index == 3) toolsPage = 0; activeTimeRevealed=false;tab = index; render(); } });
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ui.dp(32), .65f);
             bar.addView(item, p);
         }
@@ -1320,9 +1370,13 @@ public final class MainActivity extends Activity {
             Button meditation = toolMenuButton("Meditation Bell", "🔔");
             meditation.setOnClickListener(v -> startActivity(new Intent(this, MeditationActivity.class).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION), android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()));
             LinearLayout.LayoutParams meditationParams = new LinearLayout.LayoutParams(-1, ui.dp(52)); meditationParams.topMargin = ui.dp(8); list.addView(meditation, meditationParams);
+            Button youtube=toolMenuButton("Youtube Bookmark", "▶");youtube.setOnClickListener(v->startActivity(new Intent(this,YoutubeLibraryActivity.class)));LinearLayout.LayoutParams yp=new LinearLayout.LayoutParams(-1,ui.dp(52));yp.topMargin=ui.dp(8);list.addView(youtube,yp);
             Button pdf = toolMenuButton("PDF Reader", "📖");
             pdf.setOnClickListener(v -> startActivity(new Intent(this, PdfLibraryActivity.class).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION), android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()));
             LinearLayout.LayoutParams pdfParams = new LinearLayout.LayoutParams(-1, ui.dp(52)); pdfParams.topMargin = ui.dp(8); list.addView(pdf, pdfParams);
+            Button notes = toolMenuButton("Notes", "✎");
+            notes.setOnClickListener(v -> startActivity(new Intent(this, NotesActivity.class).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION), android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()));
+            LinearLayout.LayoutParams notesParams = new LinearLayout.LayoutParams(-1, ui.dp(52)); notesParams.topMargin = ui.dp(8); list.addView(notes, notesParams);
         } else {
             {
                 TextView introduction = text(toolsTool == 1
@@ -1396,7 +1450,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); LinearLayout options = column(); scroll.addView(options); content.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         Dialog window = new Dialog(this); dialog = window; briefPicker = window;
         String[] names = {"Landscapes", "Creatures"};
-        String[][] categories = {{"Theme", "Time Period", "Ambience", "Location", "Architecture", "Scale"}, {"Animal", "Clothes Style", "Body Type", "Age", "Personality"}};
+        String[][] categories = {{"Theme", "Time Period", "Ambience", "Location", "Architecture", "Scale"}, {"Animal", "Clothes Style", "Body Type", "Age", "Personality", "Emotion", "Internal Conflict"}};
         for (int g = 0; g < names.length; g++) {
             final int group = g;
             TextView heading = text((briefPickerExpanded[g] ? "▾  " : "▸  ") + names[g], 14, palette.border); heading.setGravity(Gravity.CENTER_VERTICAL); heading.setPadding(palette.dp(8), 0, palette.dp(8), 0); heading.setFocusable(true);
@@ -1421,6 +1475,22 @@ public final class MainActivity extends Activity {
     private void buildSettings(FrameLayout body) {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
         LinearLayout content = column(); content.setPadding(ui.dp(8), 0, ui.dp(8), ui.dp(8));
+        NotesStore notion=NotesStore.get(this);
+        Button cloudBackup=button(notion.connected()&&!notion.model.parent.isEmpty()?"Restore backup":"Set up backups",ui.border);
+        content.addView(cloudBackup,new LinearLayout.LayoutParams(-1,ui.dp(48)));
+        cloudBackup.setOnClickListener(v->{if(notion.connected()&&!notion.model.parent.isEmpty())NotionBackupDialog.show(this,saved->restoreSave(saved,"Before Notion backup restore"));else NotionConnection.show(this,this::render);});
+        Button notionSettings=button("Notion settings",ui.border);content.addView(notionSettings,new LinearLayout.LayoutParams(-1,ui.dp(48)));
+        notionSettings.setOnClickListener(v->NotionConnection.show(this,this::render));
+        LinearLayout volumeHeading=row();volumeHeading.addView(label("Volume"),new LinearLayout.LayoutParams(0,-2,1));
+        TextView volumeValue=text(game.soundVolume+"%",14,ui.text);volumeHeading.addView(volumeValue);content.addView(volumeHeading);
+        SeekBar volume=new SeekBar(this);volume.setMax(100);volume.setProgress(game.soundVolume);volume.setContentDescription("Volume for all app notification sounds");
+        volume.setProgressTintList(ColorStateList.valueOf(ui.border));volume.setThumbTintList(ColorStateList.valueOf(ui.border));volume.setProgressBackgroundTintList(ColorStateList.valueOf(ui.muted));
+        content.addView(volume,new LinearLayout.LayoutParams(-1,ui.dp(44)));
+        volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar bar,int value,boolean user){volumeValue.setText(value+"%");if(user&&game.soundVolume!=value){game.soundVolume=value;store.save();renderedRevision=store.revision;}}
+            @Override public void onStartTrackingTouch(SeekBar bar){}
+            @Override public void onStopTrackingTouch(SeekBar bar){}
+        });
         content.addView(label("Color Hue"));
         LinearLayout huePanel = row(); huePanel.setBackground(ui.panel(ui.border)); huePanel.setPadding(ui.dp(12), 0, ui.dp(12), 0);
         SeekBar hue = new SeekBar(this); hue.setMax(359); hue.setProgress(Math.round(game.hue));
@@ -1538,17 +1608,29 @@ public final class MainActivity extends Activity {
         withUi(new Ui(this, existing != null && existing.hue >= 0 ? existing.hue : game.hue), () -> editCategoryContent(existing));
     }
     private void editCategoryContent(Game.Category existing) {
+        java.util.function.BooleanSupplier requirementsLocked=()->{store.sync();return !game.canChangeCategoryRequirements(existing);};
         LinearLayout content = column(); content.addView(section(existing == null ? "NEW CATEGORY" : "EDIT CATEGORY"));
         EditText name = input("Category name", false); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)}); content.addView(name, fieldParams());
         CheckBox mustDo = check("Must Do"); content.addView(mustDo, fieldParams());
         LinearLayout quota = row(); EditText requiredTasks = input("Required Tasks", true); requiredTasks.setText(String.valueOf(existing == null ? 1 : existing.requiredTasks));
         quota.addView(namedTimeField(requiredTasks, "Required Tasks"), new LinearLayout.LayoutParams(0, ui.dp(64), 1)); Button all = button("All", ui.border); all.setContentDescription("All category tasks"); quota.addView(all, new LinearLayout.LayoutParams(ui.dp(64), ui.dp(64))); content.addView(quota, fieldParams());
         boolean[] requireAll = {existing != null && existing.requireAll}; String[] quotaValue = {requiredTasks.getText().toString()};
-        Runnable updateQuota = () -> { requiredTasks.setEnabled(!requireAll[0]); requiredTasks.setInputType(requireAll[0] ? InputType.TYPE_CLASS_TEXT : InputType.TYPE_CLASS_NUMBER); requiredTasks.setText(requireAll[0] ? "All" : quotaValue[0]); all.setSelected(requireAll[0]); int color = requireAll[0] ? Ui.GOLD : ui.border; all.setTextColor(color); all.setBackground(ui.button(color)); ((BorderedButton) all).setBorderColor(color); };
-        all.setOnClickListener(v -> { if (!requireAll[0]) quotaValue[0] = requiredTasks.getText().toString(); requireAll[0] = !requireAll[0]; updateQuota.run(); }); updateQuota.run();
-        quota.setVisibility(View.GONE); mustDo.setOnCheckedChangeListener((v, checked) -> quota.setVisibility(checked ? View.VISIBLE : View.GONE));
+        Runnable updateQuota = () -> { requiredTasks.setEnabled(!requireAll[0]); requiredTasks.setInputType(requireAll[0] ? InputType.TYPE_CLASS_TEXT : InputType.TYPE_CLASS_NUMBER); requiredTasks.setText(requireAll[0] ? "All" : quotaValue[0]); all.setSelected(requireAll[0]); int color = requireAll[0] ? Ui.GOLD : ui.border; all.setTextColor(color); all.setBackground(ui.button(color)); ((BorderedButton) all).setBorderColor(color);
+            if(requirementsLocked.getAsBoolean()){requiredTasks.setEnabled(true);requiredTasks.setKeyListener(null);requiredTasks.setFocusable(false);requiredTasks.setCursorVisible(false);}
+        };
+        all.setOnClickListener(v -> { if(requirementsLocked.getAsBoolean()){showInformation(MUST_DO_EDIT_NOTICE);return;} if (!requireAll[0]) quotaValue[0] = requiredTasks.getText().toString(); requireAll[0] = !requireAll[0]; updateQuota.run(); }); updateQuota.run();
+        requiredTasks.setOnClickListener(v->{
+            if(requirementsLocked.getAsBoolean()){hideKeyboard();showInformation(MUST_DO_EDIT_NOTICE);return;}
+            if(!requireAll[0]){requiredTasks.setInputType(InputType.TYPE_CLASS_NUMBER);requiredTasks.setFocusableInTouchMode(true);requiredTasks.setCursorVisible(true);requiredTasks.requestFocus();((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(requiredTasks,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);}
+        });
+        if(requirementsLocked.getAsBoolean())requiredTasks.setFocusable(false);
+        boolean[] reverting={false};
+        quota.setVisibility(View.GONE); mustDo.setOnCheckedChangeListener((v, checked) -> {
+            if(!reverting[0]&&existing!=null&&checked!=existing.mustDo&&requirementsLocked.getAsBoolean()){reverting[0]=true;mustDo.setChecked(existing.mustDo);reverting[0]=false;showInformation(MUST_DO_EDIT_NOTICE);return;}
+            quota.setVisibility(checked ? View.VISIBLE : View.GONE);
+        });
         mustDo.setChecked(existing != null && existing.mustDo);
-        mustDo.setOnClickListener(v -> { if (mustDo.isChecked()) showInformation("With 'Must Do' enabled, set an amount of quests in this category that must be finished each day before midnight."); });
+        mustDo.setOnClickListener(v -> { if (mustDo.isChecked()&&(existing==null||!existing.mustDo)) showInformation("With 'Must Do' enabled, set an amount of quests in this category that must be finished each day before midnight."); });
         CheckBox useColor = check("Use a category color"); content.addView(useColor, fieldParams());
         LinearLayout colors = column(); content.addView(colors);
         Ui[] palette = {ui}; EditText hue = questHuePicker(colors, existing != null && existing.hue >= 0 ? existing.hue : Math.round(game.hue), palette);
@@ -1560,8 +1642,13 @@ public final class MainActivity extends Activity {
         Dialog window = showDialog(content); cancel.setOnClickListener(v -> window.dismiss());
         save.setOnClickListener(v -> {
             String title = name.getText().toString().trim(); if (title.isEmpty()) { name.setError("Give your category a name"); return; }
-            Integer value = useColor.isChecked() ? number(hue, 0, 359) : -1; if (value == null) return;
-            Integer required = mustDo.isChecked() && !requireAll[0] ? number(requiredTasks, 1, 999999) : existing == null ? 1 : existing.requiredTasks; if (required == null) return;
+            Integer value = Integer.valueOf(-1);
+            if (useColor.isChecked()) value = number(hue, 0, 359);
+            if (value == null) return;
+            Integer required = Integer.valueOf(existing == null ? 1 : existing.requiredTasks);
+            if (mustDo.isChecked() && !requireAll[0]) required = number(requiredTasks, 0, 999999);
+            if (required == null) return;
+            if(existing!=null&&(existing.mustDo!=mustDo.isChecked()||existing.requireAll!=requireAll[0]||existing.requiredTasks!=required)&&requirementsLocked.getAsBoolean()){showInformation(MUST_DO_EDIT_NOTICE);return;}
             Game.Category c = existing == null ? new Game.Category() : existing; c.name = title; c.hue = value;
             if (c.mustDo != mustDo.isChecked() || c.requireAll != requireAll[0] || c.requiredTasks != required) { c.fulfilledDay = Long.MIN_VALUE; c.fulfilledTarget = 0; }
             c.mustDo = mustDo.isChecked(); c.requireAll = requireAll[0]; c.requiredTasks = required;
@@ -1595,98 +1682,9 @@ public final class MainActivity extends Activity {
         return emoji;
     }
     private void showEmojiMenu(EditText target) {
-        hideKeyboard();
-        if (emojiCatalog == null) {
-            try (java.io.Reader repertoire = new java.io.InputStreamReader(getAssets().open("emoji-test.txt"), java.nio.charset.StandardCharsets.UTF_8);
-                 java.io.Reader keywords = new java.io.InputStreamReader(getAssets().open("emoji-keywords.tsv"), java.nio.charset.StandardCharsets.UTF_8)) {
-                emojiCatalog = EmojiCatalog.read(repertoire, keywords);
-                android.graphics.Paint emojiPaint = new android.graphics.Paint(); emojiPaint.setTextSize(ui.dp(28));
-                emojiCatalog.entries.removeIf(entry -> !emojiPaint.hasGlyph(entry.emoji));
-            } catch (java.io.IOException error) { Toast.makeText(this, "Could not load emojis", Toast.LENGTH_LONG).show(); return; }
-        }
-        Ui palette = ui; Dialog parent = dialog;
-        LinearLayout content = column(); content.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(12));
-        content.setBackground(ui.panel(ui.border));
-        TextView heading = text("Choose emoji", 16, ui.text); heading.setPadding(0, 0, 0, ui.dp(4)); content.addView(heading);
-        EditText search = input("Search emojis", false); search.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        search.setMinimumHeight(ui.dp(44)); content.addView(search, new LinearLayout.LayoutParams(-1, ui.dp(44)));
-        android.widget.Spinner categories = new android.widget.Spinner(this);
-        List<String> groups = new ArrayList<>(); groups.add("All emojis"); groups.addAll(emojiCatalog.categories);
-        android.widget.ArrayAdapter<String> groupAdapter = new android.widget.ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, groups) {
-            @Override public View getView(int position, View recycled, ViewGroup parentView) {
-                TextView label = (TextView) super.getView(position, recycled, parentView); label.setTextColor(palette.text); return label;
-            }
-        };
-        groupAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item); categories.setAdapter(groupAdapter);
-        categories.setContentDescription("Emoji category"); content.addView(categories, new LinearLayout.LayoutParams(-1, ui.dp(36)));
-        TextView count = text("", 11, ui.muted); count.setPadding(0, ui.dp(4), 0, ui.dp(4)); content.addView(count);
-        android.widget.GridView grid = new android.widget.GridView(this);
-        grid.setNumColumns(android.widget.GridView.AUTO_FIT); grid.setColumnWidth(ui.dp(52));
-        grid.setStretchMode(android.widget.GridView.NO_STRETCH); grid.setVerticalSpacing(ui.dp(4));
-        content.addView(grid, new LinearLayout.LayoutParams(-1, 0, 1));
-        EmojiCatalog.Entry defaultIcon = new EmojiCatalog.Entry("", "Default icon", "", "", "", "clipboard");
-        List<EmojiCatalog.Entry> matches = new ArrayList<>(); matches.add(defaultIcon); matches.addAll(emojiCatalog.entries);
-        Runnable sizeColumns = () -> {
-            int available = grid.getWidth() > 0 ? grid.getWidth() : Math.min(getResources().getDisplayMetrics().widthPixels - palette.dp(16), palette.dp(560)) - palette.dp(24);
-            int columns = Math.max(1, Math.min(matches.size(), available / palette.dp(52)));
-            if (grid.getNumColumns() != columns) grid.setNumColumns(columns);
-        };
-        grid.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> sizeColumns.run());
-        Dialog[] popup = new Dialog[1];
-        android.widget.BaseAdapter adapter = new android.widget.BaseAdapter() {
-            @Override public int getCount() { return matches.size(); }
-            @Override public Object getItem(int position) { return matches.get(position); }
-            @Override public long getItemId(int position) { return position; }
-            @Override public View getView(int position, View recycled, ViewGroup parentView) {
-                TextView cell = recycled instanceof TextView ? (TextView) recycled : text("", 28, palette.text);
-                EmojiCatalog.Entry entry = matches.get(position); cell.setText(entry.emoji); cell.setGravity(Gravity.CENTER);
-                if (entry.emoji.isEmpty()) {
-                    Ui.Icon icon = new Ui.Icon("bulletin", palette.text); icon.setBounds(0, 0, palette.dp(28), palette.dp(28));
-                    cell.setCompoundDrawables(icon, null, null, null); cell.setPadding(palette.dp(12), 0, 0, 0);
-                } else { cell.setCompoundDrawables(null, null, null, null); cell.setPadding(0, 0, 0, 0); }
-                cell.setContentDescription(entry.name); cell.setBackground(palette.button(entry.emoji.equals(target.getText().toString()) ? Ui.GOLD : palette.border));
-                cell.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-                cell.setOnClickListener(v -> { target.setText(entry.emoji); if (popup[0] != null) popup[0].dismiss(); });
-                enableEmojiTap(cell);
-                cell.setFocusable(false); cell.setFocusableInTouchMode(false);
-                cell.setLayoutParams(new android.widget.AbsListView.LayoutParams(-1, palette.dp(52))); return cell;
-            }
-        };
-        grid.setAdapter(adapter);
-        grid.setFocusable(false); grid.setFocusableInTouchMode(false);
-        Runnable filter = () -> {
-            String category = categories.getSelectedItemPosition() <= 0 ? null : groups.get(categories.getSelectedItemPosition());
-            matches.clear();
-            if (category == null && (search.getText().toString().trim().isEmpty() || "default icon clipboard".contains(search.getText().toString().trim().toLowerCase(Locale.ROOT)))) matches.add(defaultIcon);
-            matches.addAll(emojiCatalog.search(search.getText().toString(), category)); sizeColumns.run(); adapter.notifyDataSetChanged();
-            count.setText(matches.isEmpty() ? "No matching emojis" : matches.size() == 1 ? "1 emoji" : matches.size() + " emojis"); grid.setSelection(0);
-        };
-        search.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { filter.run(); }
-            @Override public void afterTextChanged(Editable s) { }
-        });
-        categories.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(android.widget.AdapterView<?> parentView, View view, int position, long id) { filter.run(); }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parentView) { }
-        });
-        LinearLayout actions = row(); Button close = button("Close", ui.border);
-        for (Button action : new Button[]{close}) {
-            action.setMinHeight(0); action.setMinimumHeight(0);
-            actions.addView(action, new LinearLayout.LayoutParams(0, ui.dp(40), 1));
-        }
-        content.addView(actions);
-        Dialog window = new Dialog(this); popup[0] = window; emojiMenu = window; dialog = window; window.setContentView(content);
-        window.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-        window.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        window.setOnDismissListener(v -> {
-            if (emojiMenu == window) emojiMenu = null;
-            if (dialog == window) dialog = parent != null && parent.isShowing() ? parent : null;
-            if (parent != null && parent.isShowing()) fitDialog(parent);
-        });
-        grid.setOnItemClickListener((parentView, view, position, id) -> { target.setText(matches.get(position).emoji); window.dismiss(); });
-        close.setOnClickListener(v -> window.dismiss());
-        content.setFocusableInTouchMode(true); content.requestFocus(); filter.run(); window.show(); fitEmojiMenu(window);
+        Dialog parent=dialog;Dialog[] opened={null};
+        opened[0]=EmojiPickerDialog.show(this,ui,target,parent,()->{if(emojiMenu==opened[0])emojiMenu=null;if(dialog==opened[0])dialog=parent!=null&&parent.isShowing()?parent:null;});
+        if(opened[0]!=null){emojiMenu=opened[0];dialog=opened[0];}
     }
     private void fitEmojiMenu(Dialog window) {
         int width = Math.min(getResources().getDisplayMetrics().widthPixels - ui.dp(16), ui.dp(560));
@@ -1804,14 +1802,19 @@ public final class MainActivity extends Activity {
         CheckBox repeat = check("Multiple Times a Day"); content.addView(repeat, fieldParams());
         CheckBox timed = check("Timed"); content.addView(timed, fieldParams()); timed.setVisibility(View.GONE);
         CheckBox required = check("Must Complete"); content.addView(required, fieldParams());
+        boolean[] bindingRequirements={true};
         repeat.setOnCheckedChangeListener((view, checked) -> {
+            if(!bindingRequirements[0]&&checked&&existing!=null&&existing.required&&!game.canRemoveMustDo(existing)){
+                bindingRequirements[0]=true;repeat.setChecked(existing.repeatable);required.setChecked(existing.required);bindingRequirements[0]=false;showInformation(MUST_DO_EDIT_NOTICE);return;
+            }
             required.setVisibility(checked ? View.GONE : View.VISIBLE);
             timed.setVisibility(checked ? View.GONE : View.VISIBLE); if (checked) timed.setChecked(false);
-            if (checked) required.setChecked(false);
+            if (checked&&!bindingRequirements[0]) required.setChecked(false);
         });
         required.setOnCheckedChangeListener((view, checked) -> {
+            if(!bindingRequirements[0]&&!checked&&existing!=null&&existing.required){store.sync();if(!game.canRemoveMustDo(existing)){bindingRequirements[0]=true;required.setChecked(true);bindingRequirements[0]=false;showInformation(MUST_DO_EDIT_NOTICE);return;}}
             repeat.setVisibility(checked ? View.GONE : View.VISIBLE);
-            if (checked) repeat.setChecked(false);
+            if (checked&&!bindingRequirements[0]) repeat.setChecked(false);
         });
         CheckBox forever = check("Recurring"); content.addView(forever, fieldParams());
         TextView intervalLabel = label("Days between quests"); content.addView(intervalLabel);
@@ -1869,13 +1872,15 @@ public final class MainActivity extends Activity {
         LinearLayout actions = row();
         if (existing == null) { repeat.setChecked(true); forever.setChecked(true); }
         if (existing != null) {
-            name.setText(existing.name); repeat.setChecked(existing.repeatable); required.setChecked(existing.required && !existing.repeatable);
+            name.setText(existing.name); repeat.setChecked(existing.repeatable); required.setChecked(existing.required);
             timed.setVisibility(existing.repeatable ? View.GONE : View.VISIBLE); timed.setChecked(existing.timed && !existing.repeatable);
             forever.setChecked(existing.forever); interval.setText(String.valueOf(existing.interval - 1));
             date[0] = LocalDate.ofEpochDay(existing.firstDay);
             dateButton.setText(date[0].format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)));
             for (String value : existing.prerequisites) { add.performClick(); prerequisites.get(prerequisites.size() - 1).setText(value); }
         }
+        bindingRequirements[0]=false;
+        if(existing!=null&&existing.required&&existing.repeatable){required.setVisibility(View.VISIBLE);repeat.setVisibility(View.VISIBLE);}
         Button cancel = button("Cancel", Ui.RED), save = button(existing == null ? "Create quest" : "Save quest", Ui.GREEN);
         addAction(actions, cancel); addAction(actions, save); content.addView(actions);
         Dialog window = showDialog(content);
@@ -1894,6 +1899,8 @@ public final class MainActivity extends Activity {
         }
         cancel.setOnClickListener(v -> window.dismiss());
         save.setOnClickListener(v -> {
+            store.sync();
+            if(existing!=null&&existing.required&&!required.isChecked()&&!game.canRemoveMustDo(existing)){showInformation(MUST_DO_EDIT_NOTICE);return;}
             String title = name.getText().toString().trim();
             if (title.isEmpty()) { name.setError("Give your quest a name"); return; }
             Integer between = forever.isChecked() ? number(interval, 0, 36500) : 0;
@@ -2270,7 +2277,7 @@ public final class MainActivity extends Activity {
     private void confirmFine(Game.Fine fine) {
         store.sync(); LinearLayout content = column(); content.addView(label("You have broken the law."));
         content.addView(label(fine.name));
-        Game.Penalty penalty = game.nextFine();
+        Game.Penalty penalty = game.nextFine(fine);
         TextView cost = help("Fine Amount\n−" + penalty.daysLost(game.days) + " days\n" + Money.format(-penalty.coins(game.coins))); cost.setTextColor(Ui.RED); content.addView(cost);
         addTimeline(content, Game.FINE_HISTORY, fine.id, fine.name);
         LinearLayout actions = row(); Button mistake = button("Mistake", Ui.RED), admit = button("I did it.", Ui.GREEN);
@@ -2297,9 +2304,11 @@ public final class MainActivity extends Activity {
 
     private void completeCard(Game.Quest quest, LinearLayout card) {
         if (completingCard) return;
+        boolean firstToday=!quest.done(game.day);
         int[] location = new int[2]; card.getLocationOnScreen(location);
         rewardX = location[0] + card.getWidth() / 2f; rewardY = location[1] + card.getHeight() / 2f;
         if (!store.completeInstant(quest)) { render(); return; }
+        if(!firstToday){render();return;}
         if (!quest.repeatable) Feedback.vibrate(this, false);
         completingCard = true; card.setEnabled(false);
         card.removeViewAt(0); card.addView(ui.icon("check", Ui.GREEN, 30), 0);
@@ -2314,16 +2323,19 @@ public final class MainActivity extends Activity {
             }).start();
         }).start();
     }
-    private void showNotices() {
+    private void showNotices() {if(tab!=0)return;
+        if(showingMustDoCompletion){store.notices.clear();return;}
         if (!resumed || receipt == null || completingCard || store.notices.isEmpty()) return;
         StringBuilder message = new StringBuilder(); long earned = 0;
         while (!store.notices.isEmpty()) {
             GameStore.Notice notice = store.notices.removeFirst();
             if (message.length() > 0) message.append("\n");
+            if(notice.earned>0&&!game.completionLog.pending.isEmpty())continue;
             message.append(notice.message); earned += notice.earned;
         }
+        if(message.length()==0)return;
         showReceipt(message.toString(), Ui.GREEN);
-        if (earned > 0) {
+        if (earned > 0 && game.completionLog.pending.isEmpty()) {
             root.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
             if (Feedback.motion(this)) flight.reward("+" + Money.format(earned), rewardX, rewardY);
             animateReward(earned);
@@ -2345,14 +2357,14 @@ public final class MainActivity extends Activity {
         effects.postDelayed(hideReceipt, timeout);
     }
     private void animateReward(long amount) {
-        if (!resumed || amount <= 0) return;
+        if (!resumed || tab!=0 || amount <= 0) return;
         if (Feedback.motion(this)) {
             CoinFlight overlay = flight; View destination = coinTarget;
             float x = rewardX, y = rewardY;
             for (int i = 0; i < 6; i++) {
                 final int index = i;
                 effects.postDelayed(() -> {
-                    if (resumed && flight == overlay) overlay.launch(destination, index, x, y);
+                    if (resumed && tab==0 && flight == overlay) overlay.launch(destination, index, x, y);
                 }, i * 200L);
             }
             coinsValue.animate().cancel(); coinsValue.setScaleX(1.1f); coinsValue.setScaleY(1.1f);
@@ -2473,3 +2485,4 @@ public final class MainActivity extends Activity {
         if (view != null) ((android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(view.getWindowToken(), 0);
     }
 }
+

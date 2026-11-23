@@ -11,13 +11,13 @@ public class QuestBountyTest {
     private Game.Quest quest(Game g, boolean repeatable) {
         Game.Quest q = new Game.Quest(); q.firstDay = g.day; q.bountySince = now; q.repeatable = repeatable; g.addQuest(q); return q;
     }
-    @Test public void growthCompoundsOnlyAtWholeHoursAndCapsAtSevenTimesBaseline() {
+    @Test public void growthCompoundsOnlyAtWholeHoursAndCapsAtFourTimesBaseline() {
         assertEquals(10000, Game.agedBounty(10000, now, now + 3599999));
         assertEquals(10120, Game.agedBounty(10000, now, now + 3600000));
         assertEquals(10242, Game.agedBounty(10000, now, now + 7200000));
-        assertTrue(Game.agedBounty(10000, now, now + 163 * 3600000L) < 70000);
-        assertEquals(70000, Game.agedBounty(10000, now, now + 164 * 3600000L));
-        assertEquals(70000, Game.agedBounty(10000, now, now + 1000 * 3600000L));
+        assertTrue(Game.agedBounty(10000, now, now + 116 * 3600000L) < 40000);
+        assertEquals(40000, Game.agedBounty(10000, now, now + 117 * 3600000L));
+        assertEquals(40000, Game.agedBounty(10000, now, now + 1000 * 3600000L));
         assertEquals(Game.LIMIT, Game.agedBounty(Game.LIMIT, now, now + 3600000));
     }
     @Test public void growthIsIndividualAndUsesCurrentEnergyAndBaseBounty() {
@@ -43,9 +43,9 @@ public class QuestBountyTest {
     }
     @Test public void restoreReturnsTheOriginalWaitingTimeAndExactGrownReward() {
         Game g = new Game(now, zone); g.nextBounty = 10000; Game.Quest q = quest(g, false); q.bountySince = now - 7200000;
-        g.completeInstant(q, now); assertEquals(3073, g.coins);
+        g.completeInstant(q, now); assertEquals(1537, g.coins);
         assertTrue(g.restoreOneOff(q.id, now + 1)); assertEquals(0, g.coins);
-        assertEquals(now - 7200000, q.bountySince); assertEquals(3073, g.bountyFor(q, now + 1));
+        assertEquals(now - 7200000, q.bountySince); assertEquals(1537, g.bountyFor(q, now + 1));
     }
     @Test public void waitingTimeAndActiveQuoteSurviveRestart() throws Exception {
         Game g = new Game(now, zone); Game.Quest q = quest(g, true); q.bountySince = now - 3600000;
@@ -55,3 +55,4 @@ public class QuestBountyTest {
         assertEquals(g.activeBounty(now + 1000), loaded.activeBounty(now + 1000));
     }
 }
+
